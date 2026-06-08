@@ -7,6 +7,7 @@ import pytest
 
 from codex_auth import (
     CODEX_CHATGPT_BASE_URL,
+    _callback_bind_host,
     get_codex_auth_credentials,
     get_codex_auth_status,
     list_codex_models,
@@ -89,6 +90,16 @@ def test_codex_credentials_build_openai_headers(
         "version": "0.128.0",
     }
     assert CODEX_CHATGPT_BASE_URL == "https://chatgpt.com/backend-api/codex"
+
+
+def test_codex_callback_bind_host_is_configurable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("CODEX_AUTH_CALLBACK_BIND_HOST", raising=False)
+    assert _callback_bind_host() == "127.0.0.1"
+
+    monkeypatch.setenv("CODEX_AUTH_CALLBACK_BIND_HOST", "0.0.0.0")
+    assert _callback_bind_host() == "0.0.0.0"
 
 
 def test_codex_models_filters_to_chatgpt_response_models(

@@ -17,6 +17,41 @@
 
 이 분기는 API 키 대신 Codex가 저장하는 ChatGPT 로그인 토큰을 사용합니다. 로그인 정보는 기본적으로 `C:\Users\<사용자>\.codex\auth.json`에 저장됩니다.
 
+## Docker로 바로 실행
+
+Docker Desktop이 실행 중이면 루트 디렉터리에서 다음 명령만 실행합니다.
+
+```powershell
+cd C:\Users\jaemin.shin\Desktop\git\codex\target_repo\screenshot-to-code
+docker compose up --build
+```
+
+실행 후 브라우저에서 `http://127.0.0.1:5173/`을 엽니다.
+
+Docker 구성은 별도 `.env` 없이 동작합니다.
+
+- backend: `http://127.0.0.1:7001`
+- frontend: `http://127.0.0.1:5173`
+- ChatGPT 로그인 callback: `1455`, `1457`
+- ChatGPT/Codex 로그인 토큰 저장 위치: Docker volume `codex-home`
+
+처음 실행하면 Settings에서 `Sign in with ChatGPT`를 눌러 로그인합니다. 로그인 callback 포트가 compose에 열려 있으므로, 호스트 브라우저에서 완료한 로그인이 Docker backend로 돌아옵니다.
+
+포트를 바꾸고 싶으면 다음처럼 실행합니다.
+
+```powershell
+$env:BACKEND_PORT="7002"
+$env:VITE_HTTP_BACKEND_URL="http://127.0.0.1:7002"
+$env:VITE_WS_BACKEND_URL="ws://127.0.0.1:7002"
+docker compose up --build
+```
+
+Docker volume에 저장된 로그인 상태를 지우려면 다음 명령을 사용합니다.
+
+```powershell
+docker compose down -v
+```
+
 ## 백엔드 실행
 
 PowerShell 기준:

@@ -24,6 +24,7 @@ CODEX_DEFAULT_ORIGINATOR = "codex_cli_rs"
 CODEX_DEFAULT_VERSION = "0.128.0"
 CODEX_DEFAULT_PORT = 1455
 CODEX_FALLBACK_PORT = 1457
+CODEX_DEFAULT_CALLBACK_BIND_HOST = "127.0.0.1"
 CODEX_CHATGPT_RESPONSE_MODEL_ORDER = {
     "gpt-5.5": 0,
     "gpt-5.4": 1,
@@ -636,8 +637,15 @@ class _CodexLoginCallbackHandler(BaseHTTPRequestHandler):
         threading.Thread(target=self.server.shutdown, daemon=True).start()
 
 
+def _callback_bind_host() -> str:
+    return os.environ.get(
+        "CODEX_AUTH_CALLBACK_BIND_HOST",
+        CODEX_DEFAULT_CALLBACK_BIND_HOST,
+    )
+
+
 def _bind_callback_server(port: int) -> ThreadingHTTPServer:
-    return ThreadingHTTPServer(("127.0.0.1", port), _CodexLoginCallbackHandler)
+    return ThreadingHTTPServer((_callback_bind_host(), port), _CodexLoginCallbackHandler)
 
 
 def _cancel_existing_server(port: int) -> None:
