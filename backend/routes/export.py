@@ -5,7 +5,7 @@ from io import BytesIO
 import ipaddress
 import re
 import socket
-from typing import Iterable
+from typing import Iterable, cast
 from urllib.parse import unquote_to_bytes, urljoin, urlparse
 from zipfile import ZIP_DEFLATED, ZipFile
 
@@ -123,8 +123,16 @@ def extract_css_urls(css: str) -> list[str]:
 
 
 def tag_attr(tag: Tag, attribute_name: str) -> str | None:
-    value = tag.get(attribute_name)
+    value = cast(object, tag.get(attribute_name))
     return value if isinstance(value, str) else None
+
+
+def select_tags(soup: BeautifulSoup, selector: str) -> list[Tag]:
+    return [
+        element
+        for element in cast(Iterable[object], soup.select(selector))
+        if isinstance(element, Tag)
+    ]
 
 
 def add_candidate(candidates: dict[str, AssetCandidate], raw_url: str) -> None:
@@ -157,10 +165,7 @@ def display_asset_url(url: str) -> str:
 def collect_asset_candidates(soup: BeautifulSoup) -> list[AssetCandidate]:
     candidates: dict[str, AssetCandidate] = {}
 
-    for element in soup.select(",".join(IMAGE_ATTRIBUTE_SELECTORS)):
-        if not isinstance(element, Tag):
-            continue
-
+    for element in select_tags(soup, ",".join(IMAGE_ATTRIBUTE_SELECTORS)):
         for attribute_name in ["src", "href", "xlink:href"]:
             value = tag_attr(element, attribute_name)
             if value:
@@ -171,20 +176,18 @@ def collect_asset_candidates(soup: BeautifulSoup) -> list[AssetCandidate]:
             for url in parse_srcset(srcset):
                 add_candidate(candidates, url)
 
-    for style_element in soup.select("style"):
+    for style_element in select_tags(soup, "style"):
         for url in extract_css_urls(style_element.get_text()):
             add_candidate(candidates, url)
 
-    for element in soup.select("[style]"):
-        if not isinstance(element, Tag):
-            continue
+    for element in select_tags(soup, "[style]"):
         style = tag_attr(element, "style")
         if style:
             for url in extract_css_urls(style):
                 add_candidate(candidates, url)
 
-    for script_element in soup.select("script"):
-        script_text = script_element.string
+    for script_element in select_tags(soup, "script"):
+        script_text = cast(object, script_element.string)
         if not isinstance(script_text, str):
             continue
         for match in RAW_URL_RE.finditer(script_text):
@@ -403,10 +406,7 @@ def rewrite_css_urls(css: str, asset_path_by_url: dict[str, str]) -> str:
 
 
 def rewrite_html_assets(soup: BeautifulSoup, asset_path_by_url: dict[str, str]) -> None:
-    for element in soup.select(",".join(IMAGE_ATTRIBUTE_SELECTORS)):
-        if not isinstance(element, Tag):
-            continue
-
+    for element in select_tags(soup, ",".join(IMAGE_ATTRIBUTE_SELECTORS)):
         for attribute_name in ["src", "href", "xlink:href"]:
             value = tag_attr(element, attribute_name)
             if not value:
@@ -419,12 +419,10 @@ def rewrite_html_assets(soup: BeautifulSoup, asset_path_by_url: dict[str, str]) 
         if srcset:
             element["srcset"] = rewrite_srcset(srcset, asset_path_by_url)
 
-    for style_element in soup.select("style"):
+    for style_element in select_tags(soup, "style"):
         style_element.string = rewrite_css_urls(style_element.get_text(), asset_path_by_url)
 
-    for element in soup.select("[style]"):
-        if not isinstance(element, Tag):
-            continue
+    for element in select_tags(soup, "[style]"):
         style = tag_attr(element, "style")
         if style:
             element["style"] = rewrite_css_urls(style, asset_path_by_url)

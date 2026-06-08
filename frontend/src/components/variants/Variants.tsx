@@ -1,5 +1,5 @@
 import { useProjectStore } from "../../store/project-store";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useThrottle } from "../../hooks/useThrottle";
 import {
   CODE_GENERATION_MODEL_DESCRIPTIONS,
@@ -74,11 +74,13 @@ function Variants() {
   const commit = head ? commits[head] : null;
   const variants = commit?.variants || [];
   const selectedVariantIndex = commit?.selectedVariantIndex || 0;
+  const isCommitted = Boolean(commit?.isCommitted);
+  const hasCommit = Boolean(commit);
 
-  const handleVariantClick = (index: number) => {
+  const handleVariantClick = useCallback((index: number) => {
     if (index === selectedVariantIndex || !head) return;
     updateSelectedVariantIndex(head, index);
-  };
+  }, [head, selectedVariantIndex, updateSelectedVariantIndex]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -87,10 +89,10 @@ function Variants() {
         if (code >= "Digit1" && code <= "Digit9") {
           const variantIndex = parseInt(code.replace("Digit", "")) - 1;
           if (
-            commit &&
+            hasCommit &&
             variantIndex < variants.length &&
             variants.length > 1 &&
-            !commit.isCommitted
+            !isCommitted
           ) {
             event.preventDefault();
             handleVariantClick(variantIndex);
@@ -101,7 +103,7 @@ function Variants() {
 
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [variants.length, commit?.isCommitted, selectedVariantIndex, head]);
+  }, [handleVariantClick, hasCommit, isCommitted, variants.length]);
 
   if (head === null || !commit) {
     return null;

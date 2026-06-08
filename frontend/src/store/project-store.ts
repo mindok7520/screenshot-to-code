@@ -3,13 +3,44 @@ import {
   AgentEvent,
   Commit,
   CommitHash,
+  Variant,
   VariantHistoryMessage,
   VariantStatus,
 } from "../components/commits/types";
 import { PromptAsset } from "../types";
+import {
+  readProjectSnapshot,
+  writeProjectSnapshot,
+} from "./project-persistence";
+
+const PROJECT_SNAPSHOT_KEY = "screenshot-to-code-project-v1";
+const PROJECT_SNAPSHOT_VERSION = 1;
+const INTERRUPTED_GENERATION_MESSAGE =
+  "Generation was interrupted before it finished. Retry to run it again.";
+const MAX_PERSISTED_CONSOLE_LINES = 200;
+
+type PersistedProjectState = {
+  inputMode: ProjectStore["inputMode"];
+  referenceImages: string[];
+  initialPrompt: string;
+  assetsById: Record<string, PromptAsset>;
+  commits: Record<string, Commit>;
+  head: CommitHash | null;
+  latestCommitHash: CommitHash | null;
+  executionConsoles: { [key: number]: string[] };
+};
+
+type ProjectSnapshot = {
+  version: typeof PROJECT_SNAPSHOT_VERSION;
+  savedAt: number;
+  state: PersistedProjectState;
+};
 
 // Store for app-wide state
 interface ProjectStore {
+  hasHydrated: boolean;
+  hydrateProject: () => Promise<void>;
+
   // Inputs
   inputMode: "image" | "video" | "text";
   setInputMode: (mode: "image" | "video" | "text") => void;
@@ -82,7 +113,296 @@ interface ProjectStore {
   resetExecutionConsoles: () => void;
 }
 
-export const useProjectStore = create<ProjectStore>((set) => ({
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function restoreHistoryMessage(
+  message: unknown
+): VariantHistoryMessage | null {
+  if (!isRecord(message)) return null;
+  if (message.role !== "user" && message.role !== "assistant") return null;
+
+  return {
+    role: message.role,
+    text: typeof message.text === "string" ? message.text : "",
+    imageAssetIds: Array.isArray(message.imageAssetIds)
+      ? message.imageAssetIds.filter((assetId): assetId is string => typeof assetId === "string")
+      : [],
+    videoAssetIds: Array.isArray(message.videoAssetIds)
+      ? message.videoAssetIds.filter((assetId): assetId is string => typeof assetId === "string")
+      : [],
+  };
+}
+
+function restoreAgentEvent(event: unknown, now: number): AgentEvent | null {
+  if (!isRecord(event)) return null;
+  if (typeof event.id !== "string") return null;
+  if (
+    event.type !== "thinking" &&
+    event.type !== "assistant" &&
+    event.type !== "tool"
+  ) {
+    return null;
+  }
+  if (
+    event.status !== "running" &&
+    event.status !== "complete" &&
+    event.status !== "error"
+  ) {
+    return null;
+  }
+
+  const wasRunning = event.status === "running";
+  return {
+    id: event.id,
+    type: event.type,
+    status: wasRunning ? "error" : event.status,
+    content: typeof event.content === "string" ? event.content : undefined,
+    toolName: typeof event.toolName === "string" ? event.toolName : undefined,
+    input: event.input,
+    output: event.output,
+    startedAt: typeof event.startedAt === "number" ? event.startedAt : now,
+    endedAt: wasRunning
+      ? typeof event.endedAt === "number"
+        ? event.endedAt
+        : now
+      : typeof event.endedAt === "number"
+        ? event.endedAt
+        : undefined,
+  };
+}
+
+function isVariantStatus(status: unknown): status is VariantStatus {
+  return (
+    status === "generating" ||
+    status === "complete" ||
+    status === "cancelled" ||
+    status === "error"
+  );
+}
+
+function restoreVariant(variant: unknown): Variant | null {
+  if (!isRecord(variant)) return null;
+
+  const wasGenerating = variant.status === "generating";
+  const restoredStatus: VariantStatus | undefined = wasGenerating
+    ? "error"
+    : isVariantStatus(variant.status)
+      ? variant.status
+      : undefined;
+  const now = Date.now();
+  return {
+    code: typeof variant.code === "string" ? variant.code : "",
+    history: Array.isArray(variant.history)
+      ? variant.history.flatMap((message) => {
+          const restoredMessage = restoreHistoryMessage(message);
+          return restoredMessage ? [restoredMessage] : [];
+        })
+      : [],
+    requestStartedAt:
+      typeof variant.requestStartedAt === "number"
+        ? variant.requestStartedAt
+        : undefined,
+    completedAt: wasGenerating
+      ? now
+      : typeof variant.completedAt === "number"
+        ? variant.completedAt
+        : undefined,
+    status: restoredStatus,
+    errorMessage: wasGenerating
+      ? INTERRUPTED_GENERATION_MESSAGE
+      : typeof variant.errorMessage === "string"
+        ? variant.errorMessage
+        : undefined,
+    thinking: typeof variant.thinking === "string" ? variant.thinking : undefined,
+    thinkingStartTime:
+      typeof variant.thinkingStartTime === "number"
+        ? variant.thinkingStartTime
+        : undefined,
+    thinkingDuration:
+      typeof variant.thinkingDuration === "number"
+        ? variant.thinkingDuration
+        : undefined,
+    agentEvents: Array.isArray(variant.agentEvents)
+      ? variant.agentEvents.flatMap((event) => {
+          const restoredEvent = restoreAgentEvent(event, now);
+          return restoredEvent ? [restoredEvent] : [];
+        })
+      : [],
+    model: typeof variant.model === "string" ? variant.model : undefined,
+  };
+}
+
+function restoreCommit(commit: unknown): Commit | null {
+  if (!isRecord(commit) || !Array.isArray(commit.variants)) {
+    return null;
+  }
+
+  const rawVariants = commit.variants;
+  const commitRecord = commit as Partial<Commit>;
+  const dateCreated = new Date(commitRecord.dateCreated || "");
+  if (Number.isNaN(dateCreated.getTime())) {
+    return null;
+  }
+
+  const variants = rawVariants.flatMap((variant) => {
+    const restoredVariant = restoreVariant(variant);
+    return restoredVariant ? [restoredVariant] : [];
+  });
+  if (variants.length === 0) return null;
+
+  const selectedVariantIndex =
+    typeof commitRecord.selectedVariantIndex === "number"
+      ? Math.min(
+          Math.max(0, Math.floor(commitRecord.selectedVariantIndex)),
+          variants.length - 1
+        )
+      : 0;
+
+  return {
+    ...(commitRecord as Commit),
+    dateCreated,
+    variants,
+    selectedVariantIndex,
+  };
+}
+
+function pruneExecutionConsoles(
+  executionConsoles: unknown
+): ProjectStore["executionConsoles"] {
+  if (!isRecord(executionConsoles)) return {};
+
+  return Object.fromEntries(
+    Object.entries(executionConsoles).flatMap(([variantIndex, lines]) => {
+      if (!Array.isArray(lines)) return [];
+      return [
+        [
+          variantIndex,
+          lines
+            .filter((line): line is string => typeof line === "string")
+            .slice(-MAX_PERSISTED_CONSOLE_LINES),
+        ],
+      ];
+    })
+  );
+}
+
+function buildSnapshot(state: ProjectStore): ProjectSnapshot {
+  return {
+    version: PROJECT_SNAPSHOT_VERSION,
+    savedAt: Date.now(),
+    state: {
+      inputMode: state.inputMode,
+      referenceImages: state.referenceImages,
+      initialPrompt: state.initialPrompt,
+      assetsById: state.assetsById,
+      commits: state.commits,
+      head: state.head,
+      latestCommitHash: state.latestCommitHash,
+      executionConsoles: pruneExecutionConsoles(state.executionConsoles),
+    },
+  };
+}
+
+function parseSnapshot(raw: string | null): PersistedProjectState | null {
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<ProjectSnapshot>;
+    if (parsed.version !== PROJECT_SNAPSHOT_VERSION || !parsed.state) {
+      return null;
+    }
+
+    const restoredCommitEntries = Object.entries(
+      parsed.state.commits || {}
+    ).flatMap(([hash, commit]) => {
+      const restoredCommit = restoreCommit(commit);
+      return restoredCommit ? ([[hash, restoredCommit]] as const) : [];
+    });
+    const restoredCommits: Record<string, Commit> = Object.fromEntries(
+      restoredCommitEntries
+    );
+    const latestCommitHashCandidate =
+      parsed.state.latestCommitHash &&
+      restoredCommits[parsed.state.latestCommitHash]
+        ? parsed.state.latestCommitHash
+        : null;
+    const head =
+      parsed.state.head && restoredCommits[parsed.state.head]
+        ? parsed.state.head
+        : latestCommitHashCandidate;
+    const latestCommitHash = latestCommitHashCandidate ?? head;
+
+    return {
+      inputMode: parsed.state.inputMode || "image",
+      referenceImages: parsed.state.referenceImages || [],
+      initialPrompt: parsed.state.initialPrompt || "",
+      assetsById: parsed.state.assetsById || {},
+      commits: restoredCommits,
+      head,
+      latestCommitHash,
+      executionConsoles: pruneExecutionConsoles(
+        parsed.state.executionConsoles || {}
+      ),
+    };
+  } catch (error) {
+    console.warn("Failed to parse project snapshot", error);
+    return null;
+  }
+}
+
+let saveTimeoutId: number | null = null;
+let hydrationPromise: Promise<void> | null = null;
+
+function scheduleProjectSnapshotSave() {
+  if (typeof window === "undefined") return;
+  if (!useProjectStore.getState().hasHydrated) return;
+
+  if (saveTimeoutId) {
+    window.clearTimeout(saveTimeoutId);
+  }
+
+  saveTimeoutId = window.setTimeout(() => {
+    saveTimeoutId = null;
+    const state = useProjectStore.getState();
+    const snapshot = buildSnapshot(state);
+    void writeProjectSnapshot(PROJECT_SNAPSHOT_KEY, JSON.stringify(snapshot));
+  }, 300);
+}
+
+export const useProjectStore = create<ProjectStore>((set, get) => ({
+  hasHydrated: false,
+  hydrateProject: async () => {
+    if (get().hasHydrated) return;
+    if (hydrationPromise) return hydrationPromise;
+
+    hydrationPromise = (async () => {
+      try {
+        const snapshot = parseSnapshot(
+          await readProjectSnapshot(PROJECT_SNAPSHOT_KEY)
+        );
+
+        if (!snapshot) {
+          set({ hasHydrated: true });
+          return;
+        }
+
+        set({
+          ...snapshot,
+          hasHydrated: true,
+        });
+      } catch (error) {
+        console.warn("Failed to hydrate project snapshot", error);
+        set({ hasHydrated: true });
+      } finally {
+        hydrationPromise = null;
+      }
+    })();
+
+    return hydrationPromise;
+  },
+
   // Inputs and their setters
   inputMode: "image",
   setInputMode: (mode) => set({ inputMode: mode }),
@@ -456,3 +776,20 @@ export const useProjectStore = create<ProjectStore>((set) => ({
     })),
   resetExecutionConsoles: () => set({ executionConsoles: {} }),
 }));
+
+if (typeof window !== "undefined") {
+  useProjectStore.subscribe(scheduleProjectSnapshotSave);
+
+  window.addEventListener("pagehide", () => {
+    if (saveTimeoutId) {
+      window.clearTimeout(saveTimeoutId);
+      saveTimeoutId = null;
+    }
+
+    const state = useProjectStore.getState();
+    if (!state.hasHydrated) return;
+
+    const snapshot = buildSnapshot(state);
+    void writeProjectSnapshot(PROJECT_SNAPSHOT_KEY, JSON.stringify(snapshot));
+  });
+}

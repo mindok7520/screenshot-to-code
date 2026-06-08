@@ -1,6 +1,9 @@
 import { HTTP_BACKEND_URL } from "../../config";
+import toast from "react-hot-toast";
 
-function downloadBlob(blob: Blob, filename: string) {
+const DEFAULT_EXPORT_FILENAME = "screenshot-to-code-export.zip";
+
+export function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -8,12 +11,28 @@ function downloadBlob(blob: Blob, filename: string) {
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
-  URL.revokeObjectURL(url);
+  window.setTimeout(() => URL.revokeObjectURL(url), 0);
 }
 
-function filenameFromContentDisposition(contentDisposition: string | null) {
-  const match = contentDisposition?.match(/filename="?([^"]+)"?/i);
-  return match?.[1] ?? "screenshot-to-code-export.zip";
+export function filenameFromContentDisposition(
+  contentDisposition: string | null
+) {
+  const encodedMatch = contentDisposition?.match(
+    /filename\*=(?:UTF-8'')?([^;]+)/i
+  );
+  if (encodedMatch?.[1]) {
+    try {
+      return decodeURIComponent(encodedMatch[1].replace(/^"|"$/g, "")).replace(
+        /[\\/]/g,
+        "-"
+      );
+    } catch {
+      return DEFAULT_EXPORT_FILENAME;
+    }
+  }
+
+  const match = contentDisposition?.match(/filename="?([^";]+)"?/i);
+  return match?.[1].replace(/[\\/]/g, "-") ?? DEFAULT_EXPORT_FILENAME;
 }
 
 export const downloadCode = async (code: string) => {
@@ -40,6 +59,7 @@ export const downloadCode = async (code: string) => {
     );
   } catch (error) {
     console.warn("Falling back to downloading index.html", error);
+    toast.error("Could not export a zip. Downloaded index.html instead.");
     downloadBlob(new Blob([code], { type: "text/html" }), "index.html");
   }
 };

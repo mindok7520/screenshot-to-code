@@ -11,7 +11,7 @@ import {
   LuRefreshCw,
   LuDownload,
 } from "react-icons/lu";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { AppState, Settings } from "../../types";
 import CodeTab from "./CodeTab";
 import { Button } from "../ui/button";
@@ -41,6 +41,7 @@ function PreviewPane({ settings, onOpenVersions }: Props) {
   const [activeTab, setActiveTab] = useState("desktop");
   const [desktopScale, setDesktopScale] = useState(1);
   const [desktopViewMode, setDesktopViewMode] = useState<"fit" | "actual">("fit");
+  const [isDownloading, setIsDownloading] = useState(false);
 
   // Sorted commit list for version navigation
   const sortedCommits = useMemo(() =>
@@ -68,6 +69,17 @@ function PreviewPane({ settings, onOpenVersions }: Props) {
     inputMode === "video" && appState === AppState.CODING
       ? extractHtml(currentCode)
       : currentCode;
+
+  const handleDownload = useCallback(async () => {
+    if (isDownloading) return;
+
+    setIsDownloading(true);
+    try {
+      await downloadCode(previewCode);
+    } finally {
+      setIsDownloading(false);
+    }
+  }, [isDownloading, previewCode]);
 
   return (
     <div className="flex-1 flex flex-col min-h-0">
@@ -181,14 +193,15 @@ function PreviewPane({ settings, onOpenVersions }: Props) {
           <div className="flex items-center gap-1">
             {(appState === AppState.CODE_READY || isSelectedVariantComplete) && (
               <Button
-                onClick={() => downloadCode(previewCode)}
+                onClick={() => void handleDownload()}
+                disabled={isDownloading}
                 variant="ghost"
                 size="icon"
-                title="Download Code"
+                title={isDownloading ? "Downloading..." : "Download Code"}
                 className="h-9 w-9"
                 data-testid="download-code"
               >
-                <LuDownload />
+                <LuDownload className={isDownloading ? "animate-pulse" : ""} />
               </Button>
             )}
             <Button

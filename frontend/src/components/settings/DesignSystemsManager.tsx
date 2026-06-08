@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import toast from "react-hot-toast";
 import { DesignSystem } from "../../types";
-import { NEW_DESIGN_SYSTEM_CONTENT } from "../../lib/design-systems";
+import {
+  formatDesignSystemsError,
+  NEW_DESIGN_SYSTEM_CONTENT,
+} from "../../lib/design-systems";
 import { Button } from "../ui/button";
 import { Input } from "../ui/input";
 import { Textarea } from "../ui/textarea";
@@ -94,7 +97,9 @@ function DesignSystemsManager({
       toast.success("Design system created.");
     } catch (error) {
       console.error("Failed to create design system", error);
-      toast.error("Could not create design system.");
+      toast.error(
+        formatDesignSystemsError(error, "Could not create design system.")
+      );
     } finally {
       setIsSaving(false);
     }
@@ -120,7 +125,9 @@ function DesignSystemsManager({
       toast.success("Design system saved.");
     } catch (error) {
       console.error("Failed to save design system", error);
-      toast.error("Could not save design system.");
+      toast.error(
+        formatDesignSystemsError(error, "Could not save design system.")
+      );
     } finally {
       setIsSaving(false);
     }
@@ -152,7 +159,9 @@ function DesignSystemsManager({
       toast.success("Design system deleted.");
     } catch (error) {
       console.error("Failed to delete design system", error);
-      toast.error("Could not delete design system.");
+      toast.error(
+        formatDesignSystemsError(error, "Could not delete design system.")
+      );
     } finally {
       setIsSaving(false);
     }

@@ -7,7 +7,7 @@ import { DesignSystemSelectorProps } from "../../settings/DesignSystemSelector";
 import { Stack } from "../../../lib/stacks";
 
 interface Props {
-  doCreateFromText: (text: string) => void;
+  doCreateFromText: (text: string) => void | Promise<void>;
   stack: Stack;
   setStack: (stack: Stack) => void;
   designSystem: DesignSystemSelectorProps;
@@ -22,24 +22,33 @@ const EXAMPLE_PROMPTS = [
 
 function TextTab({ doCreateFromText, stack, setStack, designSystem }: Props) {
   const [text, setText] = useState("");
+  const [isGenerating, setIsGenerating] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     textareaRef.current?.focus();
   }, []);
 
-  const handleGenerate = () => {
+  const handleGenerate = async () => {
+    if (isGenerating) return;
+
     if (text.trim() === "") {
       toast.error("Please enter a description");
       return;
     }
-    doCreateFromText(text);
+
+    try {
+      setIsGenerating(true);
+      await doCreateFromText(text);
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      handleGenerate();
+      void handleGenerate();
     }
   };
 
@@ -113,11 +122,12 @@ function TextTab({ doCreateFromText, stack, setStack, designSystem }: Props) {
 
             <Button
               onClick={handleGenerate}
+              disabled={isGenerating}
               className="w-full"
               size="lg"
               data-testid="text-generate"
             >
-              Generate
+              {isGenerating ? "Starting..." : "Generate"}
             </Button>
 
             <p className="text-xs text-gray-400 dark:text-zinc-500 text-center">

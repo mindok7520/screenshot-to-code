@@ -6,6 +6,7 @@ import { toast } from "react-hot-toast";
 import OutputSettingsSection from "../../settings/OutputSettingsSection";
 import { DesignSystemSelectorProps } from "../../settings/DesignSystemSelector";
 import { Stack } from "../../../lib/stacks";
+import { formatErrorMessage, readApiErrorMessage } from "../../../lib/api-errors";
 
 interface Props {
   screenshotOneApiKey: string | null;
@@ -13,7 +14,7 @@ interface Props {
     urls: string[],
     inputMode: "image" | "video",
     textPrompt?: string,
-  ) => void;
+  ) => void | Promise<void>;
   stack: Stack;
   setStack: (stack: Stack) => void;
   designSystem: DesignSystemSelectorProps;
@@ -78,14 +79,16 @@ function UrlTab({
       });
 
       if (!response.ok) {
-        throw new Error("Failed to capture screenshot");
+        throw new Error(await readApiErrorMessage(response));
       }
 
       const res = await response.json();
-      doCreate([res.url], "image");
+      await doCreate([res.url], "image");
     } catch (error) {
       console.error(error);
-      toast.error("Failed to capture screenshot. Check console for details.");
+      toast.error(
+        formatErrorMessage(error, "Failed to capture screenshot.")
+      );
     } finally {
       setIsLoading(false);
     }
@@ -124,7 +127,7 @@ function UrlTab({
               value={referenceUrl}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !isLoading) {
-                  takeScreenshot();
+                  void takeScreenshot();
                 }
               }}
               className="w-full"

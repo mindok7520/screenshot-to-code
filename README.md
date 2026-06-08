@@ -52,7 +52,7 @@ echo "GEMINI_API_KEY=your-key" >> .env
 poetry install
 poetry env activate
 # run the printed command, e.g. source /path/to/venv/bin/activate
-poetry run uvicorn main:app --reload --port 7001
+poetry run python start.py
 ```
 
 You can also set up the keys using the settings dialog in the frontend (click the gear icon after loading the app).
@@ -61,13 +61,20 @@ Run the frontend:
 
 ```bash
 cd frontend
-yarn
-yarn dev
+pnpm install
+pnpm dev
 ```
 
 Open http://localhost:5173 to use the app.
 
-If you prefer to run the backend on a different port, update `VITE_WS_BACKEND_URL` in `frontend/.env.local`.
+If you prefer to run the backend on a different port, update `VITE_HTTP_BACKEND_URL` and `VITE_WS_BACKEND_URL` in `frontend/.env.local`.
+
+Long-running generations can keep a WebSocket connection open for several minutes. The local backend defaults to a 30 second ping interval and a 180 second ping timeout. Increase the timeout if your environment drops long requests:
+
+```bash
+cd backend
+poetry run python start.py --ws-ping-timeout 300
+```
 
 ## Docker
 
@@ -79,6 +86,18 @@ docker-compose up -d --build
 ```
 
 The app will be up and running at http://localhost:5173. Note that you can't develop the application with this setup, as file changes won't trigger a rebuild.
+
+Docker uses the same WebSocket keepalive defaults as `start.py`: `WS_PING_INTERVAL=30` and `WS_PING_TIMEOUT=180`. You can override them from the shell or a root `.env` file:
+
+```bash
+WS_PING_TIMEOUT=300 docker-compose up -d --build
+```
+
+Run backend tests and type checks in Docker with:
+
+```bash
+docker compose run --rm --build backend-checks
+```
 
 ## 🙋‍♂️ FAQs
 

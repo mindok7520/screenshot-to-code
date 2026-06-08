@@ -1,4 +1,6 @@
 import pytest
+from typing import cast
+from openai.types.chat import ChatCompletionMessageParam
 
 from agent.providers.openai import (
     OpenAIResponsesParseState,
@@ -64,19 +66,19 @@ async def test_reasoning_summary_part_added_and_done_emits_once() -> None:
 
 
 def test_convert_image_url_defaults_to_high_detail() -> None:
-    message = {
+    message = cast(ChatCompletionMessageParam, {
         "role": "user",
         "content": [
             {"type": "image_url", "image_url": {"url": "data:image/png;base64,abc"}},
         ],
-    }
-    result = _convert_message_to_responses_input(message)  # type: ignore
+    })
+    result = _convert_message_to_responses_input(message)
     image_part = result["content"][0]
     assert image_part["detail"] == "high"
 
 
 def test_convert_image_url_uses_provider_detail_over_explicit_detail() -> None:
-    message = {
+    message = cast(ChatCompletionMessageParam, {
         "role": "user",
         "content": [
             {
@@ -84,7 +86,7 @@ def test_convert_image_url_uses_provider_detail_over_explicit_detail() -> None:
                 "image_url": {"url": "data:image/png;base64,abc", "detail": "low"},
             },
         ],
-    }
-    result = _convert_message_to_responses_input(message, image_detail="original")  # type: ignore
+    })
+    result = _convert_message_to_responses_input(message, image_detail="original")
     image_part = result["content"][0]
     assert image_part["detail"] == "original"

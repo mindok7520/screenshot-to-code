@@ -14,7 +14,26 @@ services:
     volumes:
       - codex-home:/codex-home
 
-    command: poetry run uvicorn main:app --host 0.0.0.0 --port ${BACKEND_PORT:-7001}
+    command: >
+      poetry run uvicorn main:app
+      --host 0.0.0.0
+      --port ${BACKEND_PORT:-7001}
+      --ws-ping-interval ${WS_PING_INTERVAL:-30}
+      --ws-ping-timeout ${WS_PING_TIMEOUT:-180}
+
+  backend-checks:
+    profiles: ["checks"]
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        INSTALL_DEV_DEPS: "true"
+    environment:
+      CODEX_HOME: /codex-home
+    volumes:
+      - codex-home:/codex-home
+    command: >
+      sh -lc "poetry run pytest && poetry run pyright"
   
   frontend:
     build:

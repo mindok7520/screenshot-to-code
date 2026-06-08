@@ -7,6 +7,13 @@ from urllib.parse import urlparse
 router = APIRouter()
 
 
+class ScreenshotCaptureError(Exception):
+    def __init__(self, message: str, status_code: int | None = None) -> None:
+        self.message = message
+        self.status_code = status_code
+        super().__init__(message)
+
+
 def normalize_url(url: str) -> str:
     """
     Normalize URL to ensure it has a proper protocol.
@@ -69,8 +76,15 @@ async def capture_screenshot(
         response = await client.get(api_base_url, params=params)
         if response.status_code == 200 and response.content:
             return response.content
-        else:
-            raise Exception("Error taking screenshot")
+
+        detail = response.text.strip()
+        if len(detail) > 300:
+            detail = f"{detail[:300]}..."
+        message = (
+            f"Screenshot provider returned {response.status_code}"
+            + (f": {detail}" if detail else "")
+        )
+        raise ScreenshotCaptureError(message, response.status_code)
 
 
 class ScreenshotRequest(BaseModel):
@@ -101,7 +115,9 @@ async def app_screenshot(request: ScreenshotRequest):
         return ScreenshotResponse(url=data_url)
     except ValueError as e:
         # Handle URL normalization errors
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=400, detail=str(e))
+    except ScreenshotCaptureError as e:
+        raise HTTPException(status_code=502, detail=e.message)
     except Exception as e:
         # Handle other errors
         raise HTTPException(status_code=500, detail=f"Error capturing screenshot: {str(e)}")

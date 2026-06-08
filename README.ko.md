@@ -22,7 +22,7 @@
 Docker Desktop이 실행 중이면 루트 디렉터리에서 다음 명령만 실행합니다.
 
 ```powershell
-cd C:\Users\jaemin.shin\Desktop\git\codex\target_repo\screenshot-to-code
+cd C:\Users\<사용자>\Desktop\workspace\screenshot-to-code
 docker compose up --build
 ```
 
@@ -34,6 +34,19 @@ Docker 구성은 별도 `.env` 없이 동작합니다.
 - frontend: `http://127.0.0.1:5173`
 - ChatGPT 로그인 callback: `1455`, `1457`
 - ChatGPT/Codex 로그인 토큰 저장 위치: Docker volume `codex-home`
+
+생성 시간이 긴 요청에서 WebSocket keepalive timeout을 더 늘리고 싶으면 다음처럼 실행합니다.
+
+```powershell
+$env:WS_PING_TIMEOUT="300"
+docker compose up --build
+```
+
+백엔드 테스트와 타입 체크는 dev 의존성이 포함된 체크 전용 서비스로 실행할 수 있습니다.
+
+```powershell
+docker compose run --rm --build backend-checks
+```
 
 처음 실행하면 Settings에서 `Sign in with ChatGPT`를 눌러 로그인합니다. 로그인 callback 포트가 compose에 열려 있으므로, 호스트 브라우저에서 완료한 로그인이 Docker backend로 돌아옵니다.
 
@@ -57,24 +70,30 @@ docker compose down -v
 PowerShell 기준:
 
 ```powershell
-cd C:\Users\jaemin.shin\Desktop\git\codex\target_repo\screenshot-to-code\backend
+cd C:\Users\<사용자>\Desktop\workspace\screenshot-to-code\backend
 poetry install
-poetry run uvicorn main:app --host 127.0.0.1 --port 7001
+poetry run python start.py
 ```
 
 이미 `.venv`가 만들어져 있다면 다음처럼 바로 실행할 수 있습니다.
 
 ```powershell
-cd C:\Users\jaemin.shin\Desktop\git\codex\target_repo\screenshot-to-code\backend
-.\.venv\Scripts\python.exe -m uvicorn main:app --host 127.0.0.1 --port 7001
+cd C:\Users\<사용자>\Desktop\workspace\screenshot-to-code\backend
+.\.venv\Scripts\python.exe start.py
 ```
 
 백엔드 기본 주소는 `http://127.0.0.1:7001`입니다.
 
+로컬 backend를 직접 실행할 때 keepalive timeout을 더 늘리고 싶으면 다음처럼 실행합니다.
+
+```powershell
+poetry run python start.py --ws-ping-timeout 300
+```
+
 ## 프론트엔드 실행
 
 ```powershell
-cd C:\Users\jaemin.shin\Desktop\git\codex\target_repo\screenshot-to-code\frontend
+cd C:\Users\<사용자>\Desktop\workspace\screenshot-to-code\frontend
 pnpm install
 pnpm exec vite --host 127.0.0.1 --port 5173
 ```

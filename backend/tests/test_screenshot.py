@@ -1,5 +1,12 @@
 import pytest
-from routes.screenshot import normalize_url
+from fastapi import HTTPException
+
+from routes.screenshot import (
+    ScreenshotCaptureError,
+    ScreenshotRequest,
+    app_screenshot,
+    normalize_url,
+)
 
 
 class TestNormalizeUrl:
@@ -57,3 +64,28 @@ class TestNormalizeUrl:
         assert normalize_url("example.com/path/to/page.html#section") == "https://example.com/path/to/page.html#section"
         assert normalize_url("user:pass@example.com") == "https://user:pass@example.com"
         assert normalize_url("example.com?q=search&lang=en") == "https://example.com?q=search&lang=en"
+
+
+@pytest.mark.asyncio
+async def test_app_screenshot_returns_400_for_unsupported_protocol():
+    with pytest.raises(HTTPException) as exc_info:
+        await app_screenshot(ScreenshotRequest(url="ftp://example.com", apiKey="key"))
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == "Unsupported protocol: ftp"
+
+
+@pytest.mark.asyncio
+async def test_app_screenshot_returns_502_for_provider_failure(monkeypatch):
+    async def mock_capture_screenshot(target_url: str, api_key: str) -> bytes:
+        assert target_url == "https://example.com"
+        assert api_key == "bad-key"
+        raise ScreenshotCaptureError("Screenshot provider returned 401: Unauthorized")
+
+    monkeypatch.setattr("routes.screenshot.capture_screenshot", mock_capture_screenshot)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await app_screenshot(ScreenshotRequest(url="example.com", apiKey="bad-key"))
+
+    assert exc_info.value.status_code == 502
+    assert exc_info.value.detail == "Screenshot provider returned 401: Unauthorized"

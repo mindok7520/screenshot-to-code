@@ -8,7 +8,7 @@ from evals.utils import image_to_data_url
 from evals.config import EVALS_DIR
 from typing import Set
 from evals.runner import run_image_evals, count_pending_eval_tasks
-from typing import List, Dict
+from typing import Any, Dict, List, get_args
 from llm import Llm
 from prompts.prompt_types import Stack
 from pathlib import Path
@@ -21,6 +21,7 @@ router = APIRouter()
 
 # Update this if the number of outputs generated per input changes
 N = 1
+EvalEvent = Dict[str, Any]
 
 
 class Eval(BaseModel):
@@ -311,9 +312,9 @@ async def run_evals_stream(request: RunEvalsRequest):
     total_skipped_existing = sum(per_model_skipped_existing.values())
 
     async def event_generator():
-        queue: asyncio.Queue[dict] = asyncio.Queue()
+        queue: asyncio.Queue[EvalEvent] = asyncio.Queue()
 
-        async def emit(event: dict) -> None:
+        async def emit(event: EvalEvent) -> None:
             await queue.put(event)
 
         async def run_all_models() -> None:
@@ -347,7 +348,7 @@ async def run_evals_stream(request: RunEvalsRequest):
                         }
                     )
 
-                    async def on_progress(event: dict) -> None:
+                    async def on_progress(event: EvalEvent) -> None:
                         await emit(
                             {
                                 **event,
@@ -395,11 +396,11 @@ async def run_evals_stream(request: RunEvalsRequest):
 
 
 @router.get("/models", response_model=Dict[str, List[str]])
-async def get_models():
-    current_models = [model.value for model in Llm]
+async def get_models() -> Dict[str, List[str]]:
+    current_models: List[str] = [model.value for model in Llm]
 
     # Import Stack type from prompts.prompt_types and get all literal values
-    available_stacks = list(Stack.__args__)
+    available_stacks = [str(stack) for stack in get_args(Stack)]
 
     return {"models": current_models, "stacks": available_stacks}
 
@@ -433,9 +434,9 @@ async def get_best_of_n_evals(request: Request):
     folder_names = [os.path.basename(folder) for folder in folders]
 
     # Get HTML files from all folders
-    files_by_folder = []
+    files_by_folder: list[dict[str, str]] = []
     for folder in folders:
-        files = {
+        files: dict[str, str] = {
             f: os.path.join(folder, f)
             for f in os.listdir(folder)
             if f.endswith(".html")

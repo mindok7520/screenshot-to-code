@@ -13,7 +13,7 @@ from utils import (
 
 
 def test_format_prompt_summary():
-    messages = [
+    messages = cast(list[ChatCompletionMessageParam], [
         {"role": "system", "content": "lorem ipsum dolor sit amet"},
         {
             "role": "user",
@@ -29,7 +29,7 @@ def test_format_prompt_summary():
                 },
             ],
         },
-    ]
+    ])
 
     summary = format_prompt_summary(messages)
     assert "SYSTEM: lorem ipsum" in summary
@@ -151,7 +151,7 @@ def test_format_prompt_preview_collapses_long_content():
 
 
 def test_print_prompt_preview():
-    messages = [
+    messages = cast(list[ChatCompletionMessageParam], [
         {"role": "system", "content": "System message"},
         {
             "role": "user",
@@ -160,12 +160,12 @@ def test_print_prompt_preview():
                 {"type": "image_url", "image_url": {"url": "data:image/png;base64,AAA"}},
             ],
         },
-    ]
+    ])
 
     captured_output = io.StringIO()
     sys.stdout = captured_output
 
-    print_prompt_preview(cast(list[ChatCompletionMessageParam], messages))
+    print_prompt_preview(messages)
 
     sys.stdout = sys.__stdout__
 

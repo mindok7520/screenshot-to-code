@@ -4,6 +4,7 @@ import {
   defaultDesignSystemsClient,
   DesignSystemsClient,
   DesignSystemPayload,
+  formatDesignSystemsError,
 } from "../lib/design-systems";
 import { DesignSystem } from "../types";
 
@@ -19,7 +20,12 @@ export function useDesignSystems(
       setDesignSystems(await client.fetchDesignSystems());
     } catch (error) {
       console.error("Failed to load design systems", error);
-      toast.error("Could not load design systems from the backend.");
+      toast.error(
+        formatDesignSystemsError(
+          error,
+          "Could not load design systems from the backend."
+        )
+      );
     } finally {
       setIsLoading(false);
     }

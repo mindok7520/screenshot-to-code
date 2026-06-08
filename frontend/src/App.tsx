@@ -20,6 +20,12 @@ import {
   registerAssetIds,
   toRequestHistory,
 } from "./lib/prompt-history";
+import { buildRegenerateRequest } from "./lib/regenerate";
+import {
+  didAllVariantsFailAfterClose,
+  getIncompleteVariantIndexes,
+  INCOMPLETE_VARIANT_MESSAGE,
+} from "./lib/variant-status";
 // import TipLink from "./components/messages/TipLink";
 import { useAppStore } from "./store/app-store";
 import { useProjectStore } from "./store/project-store";
@@ -45,9 +51,7 @@ function App() {
     // Inputs
     inputMode,
     setInputMode,
-    referenceImages,
     setReferenceImages,
-    initialPrompt,
     setInitialPrompt,
     upsertPromptAssets,
     resetPromptAssets,
@@ -72,6 +76,8 @@ function App() {
     // Outputs
     appendExecutionConsole,
     resetExecutionConsoles,
+    hasHydrated,
+    hydrateProject,
   } = useProjectStore();
 
   const {
@@ -108,7 +114,8 @@ function App() {
     "app-theme"
   );
 
-  const wsRef = useRef<WebSocket>(null);
+  const wsRef = useRef<WebSocket | null>(null);
+  const activeGenerationIdRef = useRef(0);
   const lastThinkingEventIdRef = useRef<Record<number, string>>({});
   const lastAssistantEventIdRef = useRef<Record<number, string>>({});
   const lastToolEventIdRef = useRef<Record<number, string>>({});
@@ -167,6 +174,18 @@ function App() {
 
   // Indicate coding state using the browser tab's favicon and title
   useBrowserTabIndicator(appState === AppState.CODING);
+
+  useEffect(() => {
+    void hydrateProject();
+  }, [hydrateProject]);
+
+  useEffect(() => {
+    if (!hasHydrated) return;
+    if (appState !== AppState.INITIAL) return;
+    if (head !== null && commits[head]) {
+      setAppState(AppState.CODE_READY);
+    }
+  }, [appState, commits, hasHydrated, head, setAppState]);
 
   // When the user already has the settings in local storage, newly added keys
   // do not get added to the settings so if it's falsy, we populate it with the default
@@ -235,8 +254,23 @@ function App() {
 
   const getAssetsById = () => useProjectStore.getState().assetsById;
 
+  const invalidateActiveGeneration = () => {
+    activeGenerationIdRef.current += 1;
+    const ws = wsRef.current;
+    wsRef.current = null;
+
+    if (
+      ws &&
+      ws.readyState !== WebSocket.CLOSING &&
+      ws.readyState !== WebSocket.CLOSED
+    ) {
+      ws.close(USER_CLOSE_WEB_SOCKET_CODE);
+    }
+  };
+
   // Functions
   const reset = () => {
+    invalidateActiveGeneration();
     setAppState(AppState.INITIAL);
     setUpdateInstruction("");
     setUpdateImages([]);
@@ -252,7 +286,7 @@ function App() {
     setReferenceImages([]);
   };
 
-  const regenerate = () => {
+  const regenerate = async () => {
     if (head === null) {
       toast.error(
         "No current version set. Please contact support via chat or Github."
@@ -267,13 +301,18 @@ function App() {
       return;
     }
 
-    // Re-run the create
-    if (inputMode === "image" || inputMode === "video") {
-      doCreate(referenceImages, inputMode);
-    } else {
-      // TODO: Fix this
-      doCreateFromText(initialPrompt);
+    const regenerateRequest = buildRegenerateRequest(currentCommit);
+
+    if (regenerateRequest.inputMode === "text") {
+      await doCreateFromText(regenerateRequest.text);
+      return;
     }
+
+    await doCreate(
+      regenerateRequest.media,
+      regenerateRequest.inputMode,
+      regenerateRequest.textPrompt
+    );
   };
 
   // Used when the user cancels the code generation
@@ -321,10 +360,16 @@ function App() {
     return false;
   }
 
-  async function doGenerateCode(params: GenerationRequest) {
-    if (!(await ensureCodexAuthenticated())) {
+  async function doGenerateCode(
+    params: GenerationRequest,
+    options: { skipAuthCheck?: boolean } = {}
+  ) {
+    if (!options.skipAuthCheck && !(await ensureCodexAuthenticated())) {
       return;
     }
+
+    const generationId = activeGenerationIdRef.current + 1;
+    activeGenerationIdRef.current = generationId;
 
     // Reset the execution console
     resetExecutionConsoles();
@@ -425,6 +470,7 @@ function App() {
     };
 
     generateCode(wsRef, updatedParams, {
+      isActive: () => activeGenerationIdRef.current === generationId,
       onChange: (token, variantIndex) => {
         appendCommitCode(commit.hash, variantIndex, token);
       },
@@ -542,9 +588,9 @@ function App() {
       onCancel: (reason, errorMessage) => {
         // Close any running agent events when the socket ends without per-event
         // terminal messages, otherwise they remain stuck in "running" state.
-        finishInFlightEvents(reason === "request_failed" ? "error" : "complete");
+        finishInFlightEvents(reason === "user_cancelled" ? "complete" : "error");
 
-        if (reason === "request_failed" && commit.type === "ai_create") {
+        if (reason !== "user_cancelled" && commit.type === "ai_create") {
           const latestCreateCommit = useProjectStore.getState().commits[commit.hash];
           latestCreateCommit?.variants.forEach((variant, variantIndex) => {
             if (variant.status === "generating") {
@@ -564,17 +610,45 @@ function App() {
       },
       onComplete: () => {
         finishInFlightEvents("complete");
+        const latestCommit = useProjectStore.getState().commits[commit.hash];
+
+        if (latestCommit) {
+          getIncompleteVariantIndexes(latestCommit.variants).forEach(
+            (variantIndex) => {
+              updateVariantStatus(
+                commit.hash,
+                variantIndex,
+                "error",
+                INCOMPLETE_VARIANT_MESSAGE
+              );
+            }
+          );
+
+          if (
+            commit.type === "ai_edit" &&
+            didAllVariantsFailAfterClose(latestCommit.variants)
+          ) {
+            toast.error("All edit options failed. Kept your prompt for retry.");
+            cancelCodeGenerationAndReset(commit);
+            return;
+          }
+        }
+
         setAppState(AppState.CODE_READY);
       },
     });
   }
 
   // Initial version creation
-  function doCreate(
+  async function doCreate(
     referenceImages: string[],
     inputMode: "image" | "video",
     textPrompt: string = ""
   ) {
+    if (!(await ensureCodexAuthenticated())) {
+      return;
+    }
+
     // Reset any existing state
     reset();
 
@@ -609,31 +683,41 @@ function App() {
       const variantHistory = [
         buildUserHistoryMessage(textPrompt, imageAssetIds, videoAssetIds),
       ];
-      doGenerateCode({
-        generationType: "create",
-        inputMode,
-        prompt: {
-          text: textPrompt,
-          images: inputMode === "image" ? media : [],
-          videos: inputMode === "video" ? media : [],
+      void doGenerateCode(
+        {
+          generationType: "create",
+          inputMode,
+          prompt: {
+            text: textPrompt,
+            images: inputMode === "image" ? media : [],
+            videos: inputMode === "video" ? media : [],
+          },
+          variantHistory,
         },
-        variantHistory,
-      });
+        { skipAuthCheck: true }
+      );
     }
   }
 
-  function doCreateFromText(text: string) {
+  async function doCreateFromText(text: string) {
+    if (!(await ensureCodexAuthenticated())) {
+      return;
+    }
+
     // Reset any existing state
     reset();
 
     setInputMode("text");
     setInitialPrompt(text);
-    doGenerateCode({
-      generationType: "create",
-      inputMode: "text",
-      prompt: { text, images: [], videos: [] },
-      variantHistory: [buildUserHistoryMessage(text)],
-    });
+    void doGenerateCode(
+      {
+        generationType: "create",
+        inputMode: "text",
+        prompt: { text, images: [], videos: [] },
+        variantHistory: [buildUserHistoryMessage(text)],
+      },
+      { skipAuthCheck: true }
+    );
   }
 
   // Subsequent updates
@@ -656,6 +740,10 @@ function App() {
     const optionCodes = currentCommit?.variants.map(
       (variant) => variant.code || ""
     );
+
+    if (!(await ensureCodexAuthenticated())) {
+      return;
+    }
 
     let modifiedUpdateInstruction = updateInstruction;
     let selectedElementHtml: string | undefined;
@@ -690,25 +778,28 @@ function App() {
       ? []
       : toRequestHistory(updatedVariantHistory, getAssetsById);
 
-    doGenerateCode({
-      generationType: "update",
-      inputMode,
-      prompt: {
-        text: updateInstruction,
-        images: updateImages,
-        videos: [],
-        selectedElementHtml,
+    void doGenerateCode(
+      {
+        generationType: "update",
+        inputMode,
+        prompt: {
+          text: updateInstruction,
+          images: updateImages,
+          videos: [],
+          selectedElementHtml,
+        },
+        history: updatedHistory,
+        optionCodes,
+        variantHistory: updatedVariantHistory,
+        fileState: currentCode
+          ? {
+              path: "index.html",
+              content: currentCode,
+            }
+          : undefined,
       },
-      history: updatedHistory,
-      optionCodes,
-      variantHistory: updatedVariantHistory,
-      fileState: currentCode
-        ? {
-            path: "index.html",
-            content: currentCode,
-          }
-        : undefined,
-    });
+      { skipAuthCheck: true }
+    );
   }
 
   const handleTermDialogOpenChange = (open: boolean) => {

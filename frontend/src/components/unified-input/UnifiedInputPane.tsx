@@ -13,8 +13,8 @@ interface Props {
     images: string[],
     inputMode: "image" | "video",
     textPrompt?: string
-  ) => void;
-  doCreateFromText: (text: string) => void;
+  ) => void | Promise<void>;
+  doCreateFromText: (text: string) => void | Promise<void>;
   importFromCode: (code: string, stack: Stack) => void;
   settings: Settings;
   setSettings: React.Dispatch<React.SetStateAction<Settings>>;

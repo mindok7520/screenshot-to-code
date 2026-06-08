@@ -46,7 +46,7 @@ interface Props {
     referenceImages: string[],
     inputMode: "image" | "video",
     textPrompt?: string
-  ) => void;
+  ) => void | Promise<void>;
   stack: Stack;
   setStack: (stack: Stack) => void;
   designSystem: DesignSystemSelectorProps;
@@ -61,6 +61,7 @@ function UploadTab({ doCreate, stack, setStack, designSystem }: Props) {
   const [textPrompt, setTextPrompt] = useState("");
   const [showTextPrompt, setShowTextPrompt] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
+  const [isGenerating, setIsGenerating] = useState(false);
   const textInputRef = useRef<HTMLTextAreaElement>(null);
   const filesRef = useRef<FileWithPreview[]>([]);
   const [screenRecorderState, setScreenRecorderState] =
@@ -70,11 +71,16 @@ function UploadTab({ doCreate, stack, setStack, designSystem }: Props) {
   const remainingSlots = Math.max(0, MAX_FILES - files.length);
   const isAtLimit = remainingSlots === 0;
 
-  const handleGenerate = useCallback(() => {
-    if (uploadedDataUrls.length > 0) {
-      doCreate(uploadedDataUrls, uploadedInputMode, textPrompt);
+  const handleGenerate = useCallback(async () => {
+    if (uploadedDataUrls.length === 0 || isGenerating) return;
+
+    try {
+      setIsGenerating(true);
+      await doCreate(uploadedDataUrls, uploadedInputMode, textPrompt);
+    } finally {
+      setIsGenerating(false);
     }
-  }, [uploadedDataUrls, uploadedInputMode, textPrompt, doCreate]);
+  }, [doCreate, isGenerating, textPrompt, uploadedDataUrls, uploadedInputMode]);
 
   useEffect(() => {
     if (!hasUploadedFile) return;
@@ -83,7 +89,7 @@ function UploadTab({ doCreate, stack, setStack, designSystem }: Props) {
       if (e.key === "Enter" && !e.shiftKey) {
         if (document.activeElement === textInputRef.current) return;
         e.preventDefault();
-        handleGenerate();
+        void handleGenerate();
       }
     };
 
@@ -104,7 +110,7 @@ function UploadTab({ doCreate, stack, setStack, designSystem }: Props) {
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      handleGenerate();
+      void handleGenerate();
     }
   };
 
@@ -254,7 +260,7 @@ function UploadTab({ doCreate, stack, setStack, designSystem }: Props) {
     images: string[],
     inputMode: "image" | "video"
   ) => {
-    doCreate(images, inputMode, "");
+    return doCreate(images, inputMode, "");
   };
 
   const handleRemoveImage = (index: number) => {
@@ -475,11 +481,12 @@ function UploadTab({ doCreate, stack, setStack, designSystem }: Props) {
           <div className="flex flex-col items-center gap-1 w-full max-w-md">
             <Button
               onClick={handleGenerate}
+              disabled={isGenerating}
               className="w-full"
               size="lg"
               data-testid="upload-generate"
             >
-              Generate Code
+              {isGenerating ? "Starting..." : "Generate Code"}
             </Button>
             <p className="text-xs text-gray-400 dark:text-zinc-500">Press Enter to generate</p>
           </div>

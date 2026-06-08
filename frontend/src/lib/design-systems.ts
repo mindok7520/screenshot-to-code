@@ -1,5 +1,6 @@
 import { HTTP_BACKEND_URL } from "../config";
 import { DesignSystem } from "../types";
+import { formatErrorMessage, readApiErrorMessage } from "./api-errors";
 
 type DesignSystemsRequestMethod = "GET" | "POST" | "PATCH" | "DELETE";
 
@@ -32,11 +33,17 @@ export const NEW_DESIGN_SYSTEM_CONTENT = "";
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || "Failed to update design systems");
+    throw new Error(await readApiErrorMessage(response));
   }
 
   return response.json() as Promise<T>;
+}
+
+export function formatDesignSystemsError(
+  error: unknown,
+  fallbackMessage: string
+): string {
+  return formatErrorMessage(error, fallbackMessage);
 }
 
 function getDesignSystemUrl(baseUrl: string, path: string) {
@@ -52,11 +59,16 @@ export function createHttpDesignSystemsRequest(
     const response = await fetcher(getDesignSystemUrl(baseUrl, path), {
       method,
       headers:
-        body === undefined ? undefined : { "Content-Type": "application/json" },
+        body === undefined
+          ? { Accept: "application/json" }
+          : {
+              Accept: "application/json",
+              "Content-Type": "application/json",
+            },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
 
-    if (response.status === 204) {
+    if (response.ok && response.status === 204) {
       return undefined as T;
     }
 

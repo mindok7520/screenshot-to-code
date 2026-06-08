@@ -14,7 +14,7 @@ interface Props {
   generateCode: (
     referenceImages: string[],
     inputMode: "image" | "video"
-  ) => void;
+  ) => void | Promise<void>;
   stack: Stack;
   setStack: (stack: Stack) => void;
   designSystem?: DesignSystemSelectorProps;
@@ -35,6 +35,7 @@ function ScreenRecorder({
   const [screenRecordingDataUrl, setScreenRecordingDataUrl] = useState<
     string | null
   >(null);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const startScreenRecording = async () => {
     try {
@@ -95,9 +96,16 @@ function ScreenRecorder({
     }
   };
 
-  const kickoffGeneration = () => {
+  const kickoffGeneration = async () => {
+    if (isGenerating) return;
+
     if (screenRecordingDataUrl) {
-      generateCode([screenRecordingDataUrl], "video");
+      try {
+        setIsGenerating(true);
+        await generateCode([screenRecordingDataUrl], "video");
+      } finally {
+        setIsGenerating(false);
+      }
     } else {
       toast.error("Screen recording does not exist. Please try again.");
       throw new Error("No screen recording data url");
@@ -151,7 +159,13 @@ function ScreenRecorder({
             >
               Re-record
             </Button>
-            <Button className="flex-1" onClick={kickoffGeneration}>Generate</Button>
+            <Button
+              className="flex-1"
+              disabled={isGenerating}
+              onClick={kickoffGeneration}
+            >
+              {isGenerating ? "Starting..." : "Generate"}
+            </Button>
           </div>
         </div>
       )}

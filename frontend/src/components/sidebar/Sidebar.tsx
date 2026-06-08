@@ -20,8 +20,8 @@ import DesignSystemSelector, {
 
 interface SidebarProps {
   showSelectAndEditFeature: boolean;
-  doUpdate: (instruction: string) => void;
-  regenerate: () => void;
+  doUpdate: (instruction: string) => void | Promise<void>;
+  regenerate: () => void | Promise<void>;
   cancelCodeGeneration: () => void;
   onOpenVersions: () => void;
   designSystem: DesignSystemSelectorProps;
@@ -85,6 +85,8 @@ function Sidebar({
   const [isDragging, setIsDragging] = useState(false);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const [lightboxImage, setLightboxImage] = useState<string | null>(null);
+  const [isRetrying, setIsRetrying] = useState(false);
+  const [isSubmittingUpdate, setIsSubmittingUpdate] = useState(false);
 
   const {
     appState,
@@ -209,6 +211,31 @@ function Sidebar({
     head &&
     commits[head] &&
     commits[head].variants[commits[head].selectedVariantIndex].errorMessage;
+
+  const canSubmitUpdate =
+    updateInstruction.trim().length > 0 && !isSubmittingUpdate;
+
+  const handleUpdateSubmit = useCallback(async () => {
+    if (isSubmittingUpdate) return;
+
+    setIsSubmittingUpdate(true);
+    try {
+      await doUpdate(updateInstruction);
+    } finally {
+      setIsSubmittingUpdate(false);
+    }
+  }, [doUpdate, isSubmittingUpdate, updateInstruction]);
+
+  const handleRegenerate = useCallback(async () => {
+    if (isRetrying) return;
+
+    setIsRetrying(true);
+    try {
+      await regenerate();
+    } finally {
+      setIsRetrying(false);
+    }
+  }, [isRetrying, regenerate]);
 
   // Auto-resize textarea to fit content
   const autoResize = useCallback(() => {
@@ -418,11 +445,15 @@ function Sidebar({
             isSelectedVariantError) && (
           <div className="flex justify-end mb-3">
             <button
-              onClick={regenerate}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-zinc-800 transition-colors"
+              onClick={handleRegenerate}
+              disabled={isRetrying}
+              className="regenerate-btn flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-gray-600 dark:text-gray-300 border border-gray-300 dark:border-gray-600 rounded-lg hover:bg-gray-100 dark:hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-60 transition-colors"
+              data-testid="regenerate"
             >
-              <LuRefreshCw className="w-3.5 h-3.5" />
-              Retry
+              <LuRefreshCw
+                className={`w-3.5 h-3.5 ${isRetrying ? "animate-spin" : ""}`}
+              />
+              {isRetrying ? "Starting..." : "Retry"}
             </button>
           </div>
         )}
@@ -544,7 +575,7 @@ function Sidebar({
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
                     e.preventDefault();
-                    doUpdate(updateInstruction);
+                    void handleUpdateSubmit();
                   }
                 }}
                 value={updateInstruction}
@@ -574,14 +605,14 @@ function Sidebar({
                   <DesignSystemSelector {...designSystem} compact />
                 </div>
                 <button
-                  onClick={() => doUpdate(updateInstruction)}
-                  disabled={!updateInstruction.trim()}
+                  onClick={() => void handleUpdateSubmit()}
+                  disabled={!canSubmitUpdate}
                   className={`rounded-xl p-2 transition-colors update-btn ${
-                    updateInstruction.trim()
+                    canSubmitUpdate
                       ? "bg-violet-600 text-white hover:bg-violet-700 dark:bg-violet-500 dark:hover:bg-violet-400"
                       : "cursor-not-allowed bg-gray-200 text-gray-400 dark:bg-zinc-700 dark:text-zinc-500"
                   }`}
-                  title="Send"
+                  title={isSubmittingUpdate ? "Sending..." : "Send"}
                 >
                   <LuArrowUp className="w-[18px] h-[18px]" strokeWidth={2.5} />
                 </button>
