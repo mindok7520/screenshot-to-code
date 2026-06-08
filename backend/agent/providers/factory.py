@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Dict, Optional
 
 from anthropic import AsyncAnthropic
 from google import genai
@@ -18,6 +18,7 @@ def create_provider_session(
     prompt_messages: list[ChatCompletionMessageParam],
     should_generate_images: bool,
     openai_api_key: Optional[str],
+    openai_default_headers: Optional[Dict[str, str]],
     openai_base_url: Optional[str],
     anthropic_api_key: Optional[str],
     gemini_api_key: Optional[str],
@@ -28,9 +29,13 @@ def create_provider_session(
 
     if model in OPENAI_MODELS:
         if not openai_api_key:
-            raise Exception("OpenAI API key is missing.")
+            raise Exception("Codex auth token is missing.")
 
-        client = AsyncOpenAI(api_key=openai_api_key, base_url=openai_base_url)
+        client = AsyncOpenAI(
+            api_key=openai_api_key,
+            base_url=openai_base_url,
+            default_headers=openai_default_headers or None,
+        )
         return OpenAIProviderSession(
             client=client,
             model=model,

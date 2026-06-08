@@ -4,6 +4,7 @@ from typing import Any, cast
 
 import pytest
 
+from llm import Llm
 from routes.generate_code import (
     ExtractedParams,
     PipelineContext,
@@ -37,9 +38,11 @@ async def test_video_update_broadcasts_two_variants() -> None:
         input_mode="video",
         should_generate_images=True,
         openai_api_key=None,
+        openai_default_headers={},
         anthropic_api_key=None,
         gemini_api_key="key",
         openai_base_url=None,
+        selected_model=Llm.GPT_5_5_HIGH,
         generation_type="update",
         prompt={"text": "Edit this video output", "images": [], "videos": []},
         history=[],
@@ -89,9 +92,11 @@ async def test_image_update_broadcasts_two_variants() -> None:
         input_mode="image",
         should_generate_images=True,
         openai_api_key="key",
+        openai_default_headers={},
         anthropic_api_key="key",
         gemini_api_key=None,
         openai_base_url=None,
+        selected_model=Llm.GPT_5_5_HIGH,
         generation_type="update",
         prompt={"text": "Edit this screenshot", "images": ["data:image/png;base64,abc"], "videos": []},
         history=[],

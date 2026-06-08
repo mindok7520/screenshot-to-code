@@ -8,7 +8,7 @@ from llm import Llm
 def test_openai_turn_input_logger_writes_html_report(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("LOGS_PATH", str(tmp_path))
 
-    logger = OpenAITurnInputLogger(model=Llm.GPT_5_2_CODEX_LOW, enabled=True)
+    logger = OpenAITurnInputLogger(model=Llm.GPT_5_5_LOW, enabled=True)
     logger.record_turn_input(
         [
             {
@@ -57,7 +57,7 @@ def test_openai_turn_input_logger_preserves_full_large_payloads(
 ) -> None:
     monkeypatch.setenv("LOGS_PATH", str(tmp_path))
 
-    logger = OpenAITurnInputLogger(model=Llm.GPT_5_2_CODEX_LOW, enabled=True)
+    logger = OpenAITurnInputLogger(model=Llm.GPT_5_5_LOW, enabled=True)
     logger.record_turn_input(
         [
             {
@@ -84,7 +84,7 @@ def test_openai_turn_input_logger_includes_request_payload(
 ) -> None:
     monkeypatch.setenv("LOGS_PATH", str(tmp_path))
 
-    logger = OpenAITurnInputLogger(model=Llm.GPT_5_2_CODEX_HIGH, enabled=True)
+    logger = OpenAITurnInputLogger(model=Llm.GPT_5_5_HIGH, enabled=True)
     logger.record_turn_input(
         [
             {
@@ -93,7 +93,7 @@ def test_openai_turn_input_logger_includes_request_payload(
             }
         ],
         request_payload={
-            "model": "gpt-5.2-codex",
+            "model": "gpt-5.5",
             "input": [{"role": "user", "content": "Build this page"}],
         },
     )
@@ -110,7 +110,7 @@ def test_openai_turn_input_logger_includes_request_payload(
 def test_openai_turn_input_logger_disabled_writes_nothing(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("LOGS_PATH", str(tmp_path))
 
-    logger = OpenAITurnInputLogger(model=Llm.GPT_5_2_CODEX_LOW)
+    logger = OpenAITurnInputLogger(model=Llm.GPT_5_5_LOW)
     logger.record_turn_input([{"role": "user", "content": "Build this page"}])
     logger.record_turn_usage(TokenUsage(input=100, output=50, total=150))
 
@@ -125,7 +125,7 @@ def test_openai_turn_input_logger_summarizes_function_call_output(
 ) -> None:
     monkeypatch.setenv("LOGS_PATH", str(tmp_path))
 
-    logger = OpenAITurnInputLogger(model=Llm.GPT_5_2_CODEX_LOW, enabled=True)
+    logger = OpenAITurnInputLogger(model=Llm.GPT_5_5_LOW, enabled=True)
     logger.record_turn_input(
         [
             {

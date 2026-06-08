@@ -8,16 +8,19 @@ export enum CodeGenerationModel {
   CLAUDE_OPUS_4_8_MAX = "claude-opus-4-8 (max effort)",
   CLAUDE_OPUS_4_6 = "claude-opus-4-6",
   CLAUDE_SONNET_4_6 = "claude-sonnet-4-6",
+  GPT_5_4_LOW = "gpt-5.4 (low thinking)",
+  GPT_5_4_MEDIUM = "gpt-5.4 (medium thinking)",
+  GPT_5_4_HIGH = "gpt-5.4 (high thinking)",
+  GPT_5_4_XHIGH = "gpt-5.4 (xhigh thinking)",
   GPT_5_5_NONE = "gpt-5.5 (no thinking)",
   GPT_5_5_LOW = "gpt-5.5 (low thinking)",
   GPT_5_5_MEDIUM = "gpt-5.5 (medium thinking)",
   GPT_5_5_HIGH = "gpt-5.5 (high thinking)",
   GPT_5_5_XHIGH = "gpt-5.5 (xhigh thinking)",
-  GPT_5_2_CODEX_LOW = "gpt-5.2-codex (low thinking)",
-  GPT_5_2_CODEX_MEDIUM = "gpt-5.2-codex (medium thinking)",
-  GPT_5_2_CODEX_HIGH = "gpt-5.2-codex (high thinking)",
-  GPT_5_2_CODEX_XHIGH = "gpt-5.2-codex (xhigh thinking)",
   GPT_5_4_MINI_LOW = "gpt-5.4-mini (low thinking)",
+  GPT_5_4_MINI_MEDIUM = "gpt-5.4-mini (medium thinking)",
+  GPT_5_4_MINI_HIGH = "gpt-5.4-mini (high thinking)",
+  GPT_5_4_MINI_XHIGH = "gpt-5.4-mini (xhigh thinking)",
   GEMINI_3_FLASH_PREVIEW_HIGH = "gemini-3-flash-preview (high thinking)",
   GEMINI_3_FLASH_PREVIEW_MINIMAL = "gemini-3-flash-preview (minimal thinking)",
   GEMINI_3_1_PRO_PREVIEW_HIGH = "gemini-3.1-pro-preview (high thinking)",
@@ -48,20 +51,29 @@ export const CODE_GENERATION_MODEL_DESCRIPTIONS: {
   "gpt-5.5 (xhigh thinking)": {
     name: "GPT 5.5 (xhigh)",
   },
-  "gpt-5.2-codex (low thinking)": {
-    name: "GPT 5.2 Codex (low)",
+  "gpt-5.4 (low thinking)": {
+    name: "GPT 5.4 (low)",
   },
-  "gpt-5.2-codex (medium thinking)": {
-    name: "GPT 5.2 Codex (medium)",
+  "gpt-5.4 (medium thinking)": {
+    name: "GPT 5.4 (medium)",
   },
-  "gpt-5.2-codex (high thinking)": {
-    name: "GPT 5.2 Codex (high)",
+  "gpt-5.4 (high thinking)": {
+    name: "GPT 5.4 (high)",
   },
-  "gpt-5.2-codex (xhigh thinking)": {
-    name: "GPT 5.2 Codex (xhigh)",
+  "gpt-5.4 (xhigh thinking)": {
+    name: "GPT 5.4 (xhigh)",
   },
   "gpt-5.4-mini (low thinking)": {
     name: "GPT 5.4 Mini (low)",
+  },
+  "gpt-5.4-mini (medium thinking)": {
+    name: "GPT 5.4 Mini (medium)",
+  },
+  "gpt-5.4-mini (high thinking)": {
+    name: "GPT 5.4 Mini (high)",
+  },
+  "gpt-5.4-mini (xhigh thinking)": {
+    name: "GPT 5.4 Mini (xhigh)",
   },
   "claude-opus-4-8 (low effort)": {
     name: "Claude Opus 4.8 (low)",

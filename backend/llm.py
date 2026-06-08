@@ -5,11 +5,14 @@ from typing import TypedDict
 # Actual model versions that are passed to the LLMs and stored in our logs
 class Llm(Enum):
     # GPT
-    GPT_5_2_CODEX_LOW = "gpt-5.2-codex (low thinking)"
-    GPT_5_2_CODEX_MEDIUM = "gpt-5.2-codex (medium thinking)"
-    GPT_5_2_CODEX_HIGH = "gpt-5.2-codex (high thinking)"
-    GPT_5_2_CODEX_XHIGH = "gpt-5.2-codex (xhigh thinking)"
+    GPT_5_4_LOW = "gpt-5.4 (low thinking)"
+    GPT_5_4_MEDIUM = "gpt-5.4 (medium thinking)"
+    GPT_5_4_HIGH = "gpt-5.4 (high thinking)"
+    GPT_5_4_XHIGH = "gpt-5.4 (xhigh thinking)"
     GPT_5_4_MINI_LOW = "gpt-5.4-mini (low thinking)"
+    GPT_5_4_MINI_MEDIUM = "gpt-5.4-mini (medium thinking)"
+    GPT_5_4_MINI_HIGH = "gpt-5.4-mini (high thinking)"
+    GPT_5_4_MINI_XHIGH = "gpt-5.4-mini (xhigh thinking)"
     GPT_5_4_2026_03_05_NONE = "gpt-5.4-2026-03-05 (no thinking)"
     GPT_5_4_2026_03_05_LOW = "gpt-5.4-2026-03-05 (low thinking)"
     GPT_5_4_2026_03_05_MEDIUM = "gpt-5.4-2026-03-05 (medium thinking)"
@@ -50,11 +53,14 @@ class Completion(TypedDict):
 # models elsewhere in the codebase.
 MODEL_PROVIDER: dict[Llm, str] = {
     # OpenAI models
-    Llm.GPT_5_2_CODEX_LOW: "openai",
-    Llm.GPT_5_2_CODEX_MEDIUM: "openai",
-    Llm.GPT_5_2_CODEX_HIGH: "openai",
-    Llm.GPT_5_2_CODEX_XHIGH: "openai",
+    Llm.GPT_5_4_LOW: "openai",
+    Llm.GPT_5_4_MEDIUM: "openai",
+    Llm.GPT_5_4_HIGH: "openai",
+    Llm.GPT_5_4_XHIGH: "openai",
     Llm.GPT_5_4_MINI_LOW: "openai",
+    Llm.GPT_5_4_MINI_MEDIUM: "openai",
+    Llm.GPT_5_4_MINI_HIGH: "openai",
+    Llm.GPT_5_4_MINI_XHIGH: "openai",
     Llm.GPT_5_4_2026_03_05_NONE: "openai",
     Llm.GPT_5_4_2026_03_05_LOW: "openai",
     Llm.GPT_5_4_2026_03_05_MEDIUM: "openai",
@@ -91,11 +97,23 @@ ANTHROPIC_MODELS = {m for m, p in MODEL_PROVIDER.items() if p == "anthropic"}
 GEMINI_MODELS = {m for m, p in MODEL_PROVIDER.items() if p == "gemini"}
 
 OPENAI_MODEL_CONFIG: dict[Llm, dict[str, str]] = {
-    Llm.GPT_5_2_CODEX_LOW: {"api_name": "gpt-5.2-codex", "reasoning_effort": "low"},
-    Llm.GPT_5_2_CODEX_MEDIUM: {"api_name": "gpt-5.2-codex", "reasoning_effort": "medium"},
-    Llm.GPT_5_2_CODEX_HIGH: {"api_name": "gpt-5.2-codex", "reasoning_effort": "high"},
-    Llm.GPT_5_2_CODEX_XHIGH: {"api_name": "gpt-5.2-codex", "reasoning_effort": "xhigh"},
+    Llm.GPT_5_4_LOW: {"api_name": "gpt-5.4", "reasoning_effort": "low"},
+    Llm.GPT_5_4_MEDIUM: {"api_name": "gpt-5.4", "reasoning_effort": "medium"},
+    Llm.GPT_5_4_HIGH: {"api_name": "gpt-5.4", "reasoning_effort": "high"},
+    Llm.GPT_5_4_XHIGH: {"api_name": "gpt-5.4", "reasoning_effort": "xhigh"},
     Llm.GPT_5_4_MINI_LOW: {"api_name": "gpt-5.4-mini", "reasoning_effort": "low"},
+    Llm.GPT_5_4_MINI_MEDIUM: {
+        "api_name": "gpt-5.4-mini",
+        "reasoning_effort": "medium",
+    },
+    Llm.GPT_5_4_MINI_HIGH: {
+        "api_name": "gpt-5.4-mini",
+        "reasoning_effort": "high",
+    },
+    Llm.GPT_5_4_MINI_XHIGH: {
+        "api_name": "gpt-5.4-mini",
+        "reasoning_effort": "xhigh",
+    },
     Llm.GPT_5_4_2026_03_05_NONE: {
         "api_name": "gpt-5.4-2026-03-05",
         "reasoning_effort": "none",

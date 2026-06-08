@@ -42,6 +42,7 @@ async def generate_code_for_image(image_url: str, stack: Stack, model: Llm) -> s
         send_message=send_message,
         variant_index=0,
         openai_api_key=OPENAI_API_KEY,
+        openai_default_headers=None,
         openai_base_url=OPENAI_BASE_URL,
         anthropic_api_key=ANTHROPIC_API_KEY,
         gemini_api_key=GEMINI_API_KEY,

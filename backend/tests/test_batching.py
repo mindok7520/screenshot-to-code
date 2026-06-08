@@ -58,6 +58,7 @@ async def test_remove_background_batches_calls(
         file_state=AgentFileState(),
         should_generate_images=True,
         openai_api_key=None,
+        openai_default_headers=None,
         openai_base_url=None,
     )
 

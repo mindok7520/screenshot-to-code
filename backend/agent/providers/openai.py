@@ -54,6 +54,20 @@ def _convert_message_to_responses_input(
     return {"role": role, "content": parts}
 
 
+def _message_text_content(message: ChatCompletionMessageParam) -> str:
+    content = message.get("content", "")
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return ""
+
+    text_parts: List[str] = []
+    for part in content:
+        if isinstance(part, dict) and part.get("type") == "text":
+            text_parts.append(str(part.get("text", "")))
+    return "\n".join(text_parts)
+
+
 def _get_image_detail_for_model(model: Llm) -> str:
     if get_openai_api_name(model) == "gpt-5.5":
         return "original"
@@ -241,14 +255,17 @@ async def parse_event(
                 args_value = _get_event_attr(item, "arguments")
                 if args_value is None and item_type == "custom_tool_call":
                     args_value = _get_event_attr(item, "input")
-                state.tool_calls.setdefault(
+                tool_call_entry = state.tool_calls.setdefault(
                     call_id,
                     {
                         "id": call_id,
+                        "item_id": item_id,
                         "name": _get_event_attr(item, "name"),
                         "arguments": args_value or "",
                     },
                 )
+                if item_id:
+                    tool_call_entry["item_id"] = item_id
                 if args_value:
                     await on_event(
                         StreamEvent(
@@ -280,10 +297,13 @@ async def parse_event(
             call_id,
             {
                 "id": call_id,
+                "item_id": item_id,
                 "name": _get_event_attr(event, "name"),
                 "arguments": "",
             },
         )
+        if item_id:
+            entry["item_id"] = item_id
         delta_value = _get_event_attr(event, "delta")
         if delta_value is None:
             delta_value = _get_event_attr(event, "input")
@@ -321,10 +341,13 @@ async def parse_event(
         call_id,
         {
             "id": call_id,
+            "item_id": item_id,
             "name": _get_event_attr(event, "name"),
             "arguments": "",
         },
     )
+    if item_id:
+        entry["item_id"] = item_id
     final_value = _get_event_attr(event, "arguments")
     if final_value is None:
         final_value = _get_event_attr(event, "input")
@@ -402,13 +425,95 @@ def _build_provider_turn(state: OpenAIResponsesParseState) -> ProviderTurn:
                 )
             )
 
-    assistant_turn: List[Dict[str, Any]] = output_items if tool_calls else []
+    if tool_items:
+        assistant_turn = _make_replayable_assistant_turn(tool_items)
+    elif tool_calls:
+        assistant_turn = _make_replayable_tool_call_entries(state.tool_calls)
+    else:
+        assistant_turn = []
 
     return ProviderTurn(
         assistant_text=state.assistant_text,
         tool_calls=tool_calls,
         assistant_turn=assistant_turn,
     )
+
+
+def _make_replayable_assistant_item(item: Dict[str, Any]) -> Dict[str, Any] | None:
+    item_type = item.get("type")
+    if item_type == "function_call":
+        call_id = item.get("call_id") or item.get("id")
+        name = item.get("name")
+        if not call_id or not name:
+            return None
+        replayable = {
+            "type": "function_call",
+            "call_id": call_id,
+            "name": name,
+            "arguments": ensure_str(item.get("arguments", "")),
+        }
+        item_id = item.get("id")
+        if item_id:
+            replayable["id"] = item_id
+        status = item.get("status")
+        if status:
+            replayable["status"] = status
+        return replayable
+
+    if item_type == "custom_tool_call":
+        call_id = item.get("call_id") or item.get("id")
+        name = item.get("name")
+        if not call_id or not name:
+            return None
+        raw_input = item.get("input")
+        if raw_input is None:
+            raw_input = item.get("arguments", "")
+        replayable = {
+            "type": "custom_tool_call",
+            "call_id": call_id,
+            "name": name,
+            "input": ensure_str(raw_input),
+        }
+        item_id = item.get("id")
+        if item_id:
+            replayable["id"] = item_id
+        status = item.get("status")
+        if status:
+            replayable["status"] = status
+        return replayable
+
+    return None
+
+
+def _make_replayable_assistant_turn(
+    assistant_turn: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    replayable_items: List[Dict[str, Any]] = []
+    for item in assistant_turn:
+        if not isinstance(item, dict):
+            continue
+        replayable_item = _make_replayable_assistant_item(item)
+        if replayable_item:
+            replayable_items.append(replayable_item)
+    return replayable_items
+
+
+def _make_replayable_tool_call_entries(
+    tool_call_entries: Dict[str, Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    replayable_items: List[Dict[str, Any]] = []
+    for entry in tool_call_entries.values():
+        item = {
+            "type": "function_call",
+            "id": entry.get("item_id"),
+            "call_id": entry.get("id") or entry.get("call_id"),
+            "name": entry.get("name"),
+            "arguments": entry.get("arguments", ""),
+        }
+        replayable_item = _make_replayable_assistant_item(item)
+        if replayable_item:
+            replayable_items.append(replayable_item)
+    return replayable_items
 
 
 class OpenAIProviderSession(ProviderSession):
@@ -428,9 +533,14 @@ class OpenAIProviderSession(ProviderSession):
             enabled=IS_DEBUG_ENABLED,
         )
         image_detail = _get_image_detail_for_model(model)
+        self._instructions = ""
+        input_messages = prompt_messages
+        if prompt_messages and prompt_messages[0].get("role") == "system":
+            self._instructions = _message_text_content(prompt_messages[0])
+            input_messages = prompt_messages[1:]
         self._input_items: List[Dict[str, Any]] = [
             _convert_message_to_responses_input(message, image_detail=image_detail)
-            for message in prompt_messages
+            for message in input_messages
         ]
 
     async def stream_turn(self, on_event: EventSink) -> ProviderTurn:
@@ -440,9 +550,11 @@ class OpenAIProviderSession(ProviderSession):
             "input": self._input_items,
             "tools": self._tools,
             "tool_choice": "auto",
+            "store": False,
             "stream": True,
-            "max_output_tokens": 50000,
         }
+        if self._instructions:
+            params["instructions"] = self._instructions
         if model_name == "gpt-5.4-2026-03-05":
             params["prompt_cache_retention"] = "24h"
         reasoning_effort = get_openai_reasoning_effort(self._model)
@@ -470,7 +582,9 @@ class OpenAIProviderSession(ProviderSession):
         turn: ProviderTurn,
         executed_tool_calls: list[ExecutedToolCall],
     ) -> None:
-        assistant_output_items = turn.assistant_turn or []
+        assistant_output_items = _make_replayable_assistant_turn(
+            turn.assistant_turn or []
+        )
         if assistant_output_items:
             self._input_items.extend(assistant_output_items)
 

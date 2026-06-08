@@ -7,7 +7,15 @@ load_dotenv()
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import IS_DEBUG_ENABLED
-from routes import screenshot, generate_code, home, evals, export, design_systems
+from routes import (
+    codex_auth_routes,
+    design_systems,
+    evals,
+    export,
+    generate_code,
+    home,
+    screenshot,
+)
 from uploaded_assets import configure_uploaded_asset_routes
 
 app = FastAPI(openapi_url=None, docs_url=None, redoc_url=None)
@@ -30,6 +38,7 @@ app.add_middleware(
 
 # Add routes
 app.include_router(generate_code.router)
+app.include_router(codex_auth_routes.router)
 app.include_router(screenshot.router)
 app.include_router(home.router)
 app.include_router(evals.router)

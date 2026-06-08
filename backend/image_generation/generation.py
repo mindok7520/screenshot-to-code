@@ -1,6 +1,6 @@
 import asyncio
 import time
-from typing import List, Literal, Union
+from typing import Dict, List, Literal, Union
 
 from openai import AsyncOpenAI
 
@@ -20,11 +20,15 @@ async def process_tasks(
     api_key: str,
     base_url: str | None,
     model: Literal["dalle3", "flux"],
+    default_headers: Dict[str, str] | None = None,
 ) -> List[Union[str, None]]:
     start_time = time.time()
     results: list[str | BaseException | None]
     if model == "dalle3":
-        tasks = [generate_image_dalle(prompt, api_key, base_url) for prompt in prompts]
+        tasks = [
+            generate_image_dalle(prompt, api_key, base_url, default_headers)
+            for prompt in prompts
+        ]
         results = await asyncio.gather(*tasks, return_exceptions=True)
     else:
         results = []
@@ -48,9 +52,16 @@ async def process_tasks(
 
 
 async def generate_image_dalle(
-    prompt: str, api_key: str, base_url: str | None
+    prompt: str,
+    api_key: str,
+    base_url: str | None,
+    default_headers: Dict[str, str] | None = None,
 ) -> Union[str, None]:
-    client = AsyncOpenAI(api_key=api_key, base_url=base_url)
+    client = AsyncOpenAI(
+        api_key=api_key,
+        base_url=base_url,
+        default_headers=default_headers or None,
+    )
     res = await client.images.generate(
         model="dall-e-3",
         quality="standard",

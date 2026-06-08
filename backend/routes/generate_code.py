@@ -7,15 +7,16 @@ from fastapi import APIRouter, WebSocket
 import openai
 from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
 from config import (
-    ANTHROPIC_API_KEY,
-    GEMINI_API_KEY,
     IS_DEBUG_ENABLED,
     IS_PROD,
     NUM_VARIANTS,
     NUM_VARIANTS_VIDEO,
-    OPENAI_API_KEY,
-    OPENAI_BASE_URL,
-    REPLICATE_API_KEY,
+)
+from codex_auth import (
+    CODEX_CHATGPT_BASE_URL,
+    CodexAuthError,
+    CodexAuthNotConfigured,
+    get_codex_auth_credentials,
 )
 from custom_types import InputMode
 from llm import (
@@ -60,16 +61,7 @@ from uploaded_assets import (
 )
 from agent.runner import Agent
 from routes.model_choice_sets import (
-    ALL_KEYS_MODELS_DEFAULT,
-    ALL_KEYS_MODELS_TEXT_CREATE,
-    ALL_KEYS_MODELS_UPDATE,
-    ANTHROPIC_ONLY_MODELS,
-    GEMINI_ANTHROPIC_MODELS,
-    GEMINI_OPENAI_MODELS,
-    GEMINI_ONLY_MODELS,
-    OPENAI_ANTHROPIC_MODELS,
-    OPENAI_ONLY_MODELS,
-    VIDEO_VARIANT_MODELS,
+    CODEX_SELECTABLE_MODELS,
 )
 
 # from utils import pprint_prompt
@@ -85,13 +77,19 @@ class PipelineContext:
 
     websocket: WebSocket
     ws_comm: "WebSocketCommunicator | None" = None
-    params: Dict[str, Any] = field(default_factory=dict)
+    params: Dict[str, Any] = field(default_factory=lambda: cast(Dict[str, Any], {}))
     extracted_params: "ExtractedParams | None" = None
-    prompt_messages: List[ChatCompletionMessageParam] = field(default_factory=list)
-    variant_models: List[Llm] = field(default_factory=list)
-    completions: List[str] = field(default_factory=list)
-    variant_completions: Dict[int, str] = field(default_factory=dict)
-    metadata: Dict[str, Any] = field(default_factory=dict)
+    prompt_messages: List[ChatCompletionMessageParam] = field(
+        default_factory=lambda: cast(List[ChatCompletionMessageParam], [])
+    )
+    variant_models: List[Llm] = field(default_factory=lambda: cast(List[Llm], []))
+    completions: List[str] = field(default_factory=lambda: cast(List[str], []))
+    variant_completions: Dict[int, str] = field(
+        default_factory=lambda: cast(Dict[int, str], {})
+    )
+    metadata: Dict[str, Any] = field(
+        default_factory=lambda: cast(Dict[str, Any], {})
+    )
 
     @property
     def send_message(self):
@@ -233,9 +231,11 @@ class ExtractedParams:
     input_mode: InputMode
     should_generate_images: bool
     openai_api_key: str | None
+    openai_default_headers: Dict[str, str]
     anthropic_api_key: str | None
     gemini_api_key: str | None
     openai_base_url: str | None
+    selected_model: Llm
     generation_type: Literal["create", "update"]
     prompt: UserTurnInput
     history: List[PromptHistoryMessage]
@@ -273,30 +273,42 @@ class ParameterExtractionStage:
             raise ValueError(f"Invalid input mode: {input_mode}")
         validated_input_mode = cast(InputMode, input_mode)
 
-        openai_api_key = self._get_from_settings_dialog_or_env(
-            params, "openAiApiKey", OPENAI_API_KEY
-        )
-
-        # If neither is provided, we throw an error later only if Claude is used.
-        anthropic_api_key = self._get_from_settings_dialog_or_env(
-            params, "anthropicApiKey", ANTHROPIC_API_KEY
-        )
-        gemini_api_key = self._get_from_settings_dialog_or_env(
-            params, "geminiApiKey", GEMINI_API_KEY
-        )
-
-        # Base URL for OpenAI API
-        openai_base_url: str | None = None
-        # Disable user-specified OpenAI Base URL in prod
-        if not IS_PROD:
-            openai_base_url = self._get_from_settings_dialog_or_env(
-                params, "openAiBaseURL", OPENAI_BASE_URL
+        openai_api_key: str | None = None
+        openai_default_headers: Dict[str, str] = {}
+        try:
+            codex_credentials = await asyncio.to_thread(
+                get_codex_auth_credentials,
+                True,
             )
-        if not openai_base_url:
-            print("Using official OpenAI URL")
+            openai_api_key = codex_credentials.access_token
+            openai_default_headers = codex_credentials.openai_default_headers()
+            print("Using local Codex ChatGPT login")
+        except CodexAuthNotConfigured:
+            print("No local Codex ChatGPT login found")
+        except CodexAuthError as err:
+            await self.throw_error(
+                "Codex account login is invalid or expired. Open Settings and sign in with ChatGPT again."
+            )
+            raise ValueError("Invalid Codex auth") from err
+
+        anthropic_api_key = None
+        gemini_api_key = None
+        openai_base_url = CODEX_CHATGPT_BASE_URL
 
         # Get the image generation flag from the request. Fall back to True if not provided.
         should_generate_images = bool(params.get("isImageGenerationEnabled", True))
+
+        selected_model = Llm.GPT_5_5_HIGH
+        raw_selected_model = params.get("codeGenerationModel")
+        if isinstance(raw_selected_model, str):
+            try:
+                requested_model = Llm(raw_selected_model)
+                if requested_model in CODEX_SELECTABLE_MODELS:
+                    selected_model = requested_model
+                else:
+                    print(f"Ignoring unsupported Codex model: {raw_selected_model}")
+            except ValueError:
+                print(f"Ignoring unknown Codex model: {raw_selected_model}")
 
         # Extract and validate generation type
         generation_type = params.get("generationType", "create")
@@ -320,15 +332,21 @@ class ParameterExtractionStage:
         raw_file_state = params.get("fileState")
         file_state: Dict[str, str] | None = None
         if isinstance(raw_file_state, dict):
-            content = raw_file_state.get("content")
+            raw_file_state_dict = cast(Dict[str, Any], raw_file_state)
+            content = raw_file_state_dict.get("content")
             if isinstance(content, str) and content.strip():
-                path = raw_file_state.get("path") or "index.html"
+                raw_path = raw_file_state_dict.get("path")
+                path = (
+                    raw_path
+                    if isinstance(raw_path, str) and raw_path
+                    else "index.html"
+                )
                 file_state = {"path": path, "content": content}
 
         raw_option_codes = params.get("optionCodes")
         option_codes: List[str] = []
         if isinstance(raw_option_codes, list):
-            for entry in raw_option_codes:
+            for entry in cast(List[Any], raw_option_codes):
                 if isinstance(entry, str):
                     option_codes.append(entry)
                 elif entry is None:
@@ -348,9 +366,11 @@ class ParameterExtractionStage:
             input_mode=validated_input_mode,
             should_generate_images=should_generate_images,
             openai_api_key=openai_api_key,
+            openai_default_headers=openai_default_headers,
             anthropic_api_key=anthropic_api_key,
             gemini_api_key=gemini_api_key,
             openai_base_url=openai_base_url,
+            selected_model=selected_model,
             generation_type=generation_type,
             prompt=prompt,
             history=history,
@@ -376,7 +396,7 @@ class ParameterExtractionStage:
 
 
 class ModelSelectionStage:
-    """Handles selection of variant models based on available API keys and generation type"""
+    """Handles selection of Codex variant models based on local ChatGPT login."""
 
     def __init__(self, throw_error: Callable[[str], Coroutine[Any, Any, None]]):
         self.throw_error = throw_error
@@ -386,10 +406,11 @@ class ModelSelectionStage:
         generation_type: Literal["create", "update"],
         input_mode: InputMode,
         openai_api_key: str | None,
+        selected_model: Llm,
         anthropic_api_key: str | None,
         gemini_api_key: str | None = None,
     ) -> List[Llm]:
-        """Select appropriate models based on available API keys"""
+        """Select Codex models based on local ChatGPT login state."""
         try:
             num_variants = 2 if generation_type == "update" else NUM_VARIANTS
             variant_models = self._get_variant_models(
@@ -397,6 +418,7 @@ class ModelSelectionStage:
                 input_mode,
                 num_variants,
                 openai_api_key,
+                selected_model,
                 anthropic_api_key,
                 gemini_api_key,
             )
@@ -409,11 +431,9 @@ class ModelSelectionStage:
             return variant_models
         except Exception:
             await self.throw_error(
-                "No OpenAI, Anthropic, or Gemini API key found. Please add the environment variable "
-                "OPENAI_API_KEY, ANTHROPIC_API_KEY, or GEMINI_API_KEY to backend/.env or in the settings dialog. "
-                "If you add it to .env, make sure to restart the backend server."
+                "No Codex ChatGPT login found. Open Settings and sign in with ChatGPT before generating code."
             )
-            raise Exception("No API key")
+            raise Exception("No Codex login")
 
     def _get_variant_models(
         self,
@@ -421,49 +441,16 @@ class ModelSelectionStage:
         input_mode: InputMode,
         num_variants: int,
         openai_api_key: str | None,
+        selected_model: Llm,
         anthropic_api_key: str | None,
         gemini_api_key: str | None,
     ) -> List[Llm]:
-        """Simple model cycling that scales with num_variants"""
+        """Use the selected Codex model for all variants."""
 
-        # Video mode requires Gemini - 2 variants for comparison
-        if input_mode == "video":
-            if not gemini_api_key:
-                raise Exception(
-                    "Video mode requires a Gemini API key. "
-                    "Please add GEMINI_API_KEY to backend/.env or in the settings dialog"
-                )
-            return list(VIDEO_VARIANT_MODELS)
+        if not openai_api_key:
+            raise Exception("No Codex login")
 
-        # Define models based on available API keys
-        if gemini_api_key and anthropic_api_key and openai_api_key:
-            if input_mode == "text" and generation_type == "create":
-                models = list(ALL_KEYS_MODELS_TEXT_CREATE)
-            elif generation_type == "update":
-                models = list(ALL_KEYS_MODELS_UPDATE)
-            else:
-                models = list(ALL_KEYS_MODELS_DEFAULT)
-        elif gemini_api_key and anthropic_api_key:
-            models = list(GEMINI_ANTHROPIC_MODELS)
-        elif gemini_api_key and openai_api_key:
-            models = list(GEMINI_OPENAI_MODELS)
-        elif openai_api_key and anthropic_api_key:
-            models = list(OPENAI_ANTHROPIC_MODELS)
-        elif gemini_api_key:
-            models = list(GEMINI_ONLY_MODELS)
-        elif anthropic_api_key:
-            models = list(ANTHROPIC_ONLY_MODELS)
-        elif openai_api_key:
-            models = list(OPENAI_ONLY_MODELS)
-        else:
-            raise Exception("No OpenAI or Anthropic key")
-
-        # Cycle through models: [A, B] with num=5 becomes [A, B, A, B, A]
-        selected_models: List[Llm] = []
-        for i in range(num_variants):
-            selected_models.append(models[i % len(models)])
-
-        return selected_models
+        return [selected_model for _ in range(num_variants)]
 
 
 class PromptCreationStage:
@@ -520,6 +507,7 @@ class AgenticGenerationStage:
         self,
         send_message: Callable[[MessageType, str | None, int, Dict[str, Any] | None, str | None], Coroutine[Any, Any, None]],
         openai_api_key: str | None,
+        openai_default_headers: Dict[str, str],
         openai_base_url: str | None,
         anthropic_api_key: str | None,
         gemini_api_key: str | None,
@@ -529,6 +517,7 @@ class AgenticGenerationStage:
     ):
         self.send_message = send_message
         self.openai_api_key = openai_api_key
+        self.openai_default_headers = openai_default_headers
         self.openai_base_url = openai_base_url
         self.anthropic_api_key = anthropic_api_key
         self.gemini_api_key = gemini_api_key
@@ -586,6 +575,7 @@ class AgenticGenerationStage:
                 send_message=send_runner_message,
                 variant_index=index,
                 openai_api_key=self.openai_api_key,
+                openai_default_headers=self.openai_default_headers,
                 openai_base_url=self.openai_base_url,
                 anthropic_api_key=self.anthropic_api_key,
                 gemini_api_key=self.gemini_api_key,
@@ -607,8 +597,7 @@ class AgenticGenerationStage:
         except openai.AuthenticationError as e:
             print(f"[VARIANT {index + 1}] OpenAI Authentication failed", e)
             error_message = (
-                "Incorrect OpenAI key. Please make sure your OpenAI API key is correct, "
-                "or create a new OpenAI API key on your OpenAI dashboard."
+                "Codex authentication failed. Open Settings and sign in with ChatGPT again."
                 + (
                     " Alternatively, you can purchase code generation credits directly on this website."
                     if IS_PROD
@@ -622,7 +611,7 @@ class AgenticGenerationStage:
             error_message = (
                 e.message
                 + ". Please make sure you have followed the instructions correctly to obtain "
-                "an OpenAI key with GPT vision access: "
+                "access to the selected Codex model: "
                 "https://github.com/abi/screenshot-to-code/blob/main/Troubleshooting.md"
                 + (
                     " Alternatively, you can purchase code generation credits directly on this website."
@@ -751,6 +740,7 @@ class CodeGenerationMiddleware(Middleware):
                 generation_type=context.extracted_params.generation_type,
                 input_mode=context.extracted_params.input_mode,
                 openai_api_key=context.extracted_params.openai_api_key,
+                selected_model=context.extracted_params.selected_model,
                 anthropic_api_key=context.extracted_params.anthropic_api_key,
                 gemini_api_key=context.extracted_params.gemini_api_key,
             )
@@ -766,6 +756,7 @@ class CodeGenerationMiddleware(Middleware):
             generation_stage = AgenticGenerationStage(
                 send_message=context.send_message,
                 openai_api_key=context.extracted_params.openai_api_key,
+                openai_default_headers=context.extracted_params.openai_default_headers,
                 openai_base_url=context.extracted_params.openai_base_url,
                 anthropic_api_key=context.extracted_params.anthropic_api_key,
                 gemini_api_key=context.extracted_params.gemini_api_key,

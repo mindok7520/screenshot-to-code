@@ -1,5 +1,4 @@
 import { Stack } from "./lib/stacks";
-import { CodeGenerationModel } from "./lib/models";
 
 export enum EditorTheme {
   ESPRESSO = "espresso",
@@ -19,7 +18,7 @@ export interface Settings {
   isImageGenerationEnabled: boolean;
   editorTheme: EditorTheme;
   generatedCodeConfig: Stack;
-  codeGenerationModel: CodeGenerationModel;
+  codeGenerationModel: string;
   selectedDesignSystemId: string | null;
   // Only relevant for hosted version
   isTermOfServiceAccepted: boolean;

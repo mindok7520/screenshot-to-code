@@ -2,8 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { generateCode } from "./generateCode";
 import { AppState, AppTheme, EditorTheme, Settings } from "./types";
 import { NEW_DESIGN_SYSTEM_CONTENT } from "./lib/design-systems";
-import { IS_RUNNING_ON_CLOUD } from "./config";
-import { OnboardingNote } from "./components/messages/OnboardingNote";
+import { HTTP_BACKEND_URL, IS_RUNNING_ON_CLOUD } from "./config";
 import { usePersistedState } from "./hooks/usePersistedState";
 import TermsOfServiceDialog from "./components/TermsOfServiceDialog";
 import { USER_CLOSE_WEB_SOCKET_CODE } from "./constants";
@@ -35,6 +34,11 @@ import SettingsTab from "./components/settings/SettingsTab";
 import DesignSystemsModal from "./components/settings/DesignSystemsModal";
 import { Commit } from "./components/commits/types";
 import { createCommit } from "./components/commits/utils";
+
+interface CodexAuthStatus {
+  authenticated: boolean;
+  error: string | null;
+}
 
 function App() {
   const {
@@ -92,7 +96,7 @@ function App() {
       isImageGenerationEnabled: true,
       editorTheme: EditorTheme.COBALT,
       generatedCodeConfig: Stack.HTML_TAILWIND,
-      codeGenerationModel: CodeGenerationModel.CLAUDE_OPUS_4_6,
+      codeGenerationModel: CodeGenerationModel.GPT_5_5_HIGH,
       selectedDesignSystemId: null,
       // Only relevant for hosted version
       isTermOfServiceAccepted: false,
@@ -298,7 +302,30 @@ function App() {
     }
   };
 
-  function doGenerateCode(params: GenerationRequest) {
+  async function ensureCodexAuthenticated() {
+    try {
+      const response = await fetch(`${HTTP_BACKEND_URL}/api/codex-auth/status`);
+      if (!response.ok) {
+        throw new Error(`Codex auth status failed: ${response.status}`);
+      }
+      const status = (await response.json()) as CodexAuthStatus;
+      if (status.authenticated) {
+        return true;
+      }
+      toast.error("Sign in with ChatGPT before generating code.");
+    } catch (error) {
+      console.error("Failed to check Codex auth status", error);
+      toast.error("Could not check Codex account status.");
+    }
+    setIsSettingsOpen(true);
+    return false;
+  }
+
+  async function doGenerateCode(params: GenerationRequest) {
+    if (!(await ensureCodexAuthenticated())) {
+      return;
+    }
+
     // Reset the execution console
     resetExecutionConsoles();
 
@@ -835,12 +862,6 @@ function App() {
               </div>
             ) : (
               <>
-                {IS_RUNNING_ON_CLOUD && !settings.openAiApiKey && (
-                  <div className="px-6 mt-4">
-                    <OnboardingNote />
-                  </div>
-                )}
-
                 {(appState === AppState.CODING ||
                   appState === AppState.CODE_READY) && (
                   <Sidebar

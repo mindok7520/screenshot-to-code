@@ -35,7 +35,7 @@ const stacks = process.env.QA_STACKS
   ? process.env.QA_STACKS.split(",").map((stack) => stack.trim() as Stack)
   : defaultStacks;
 
-const defaultModels = [CodeGenerationModel.CLAUDE_OPUS_4_6];
+const defaultModels = [CodeGenerationModel.GPT_5_5_HIGH];
 const models = process.env.QA_MODELS
   ? process.env.QA_MODELS.split(",").map((model) => model.trim())
   : defaultModels;
@@ -214,9 +214,10 @@ class App {
 
   async setupLocalStorage() {
     const setting = {
-      openAiApiKey: "test-openai-key",
+      openAiApiKey: null,
       openAiBaseURL: null,
-      anthropicApiKey: "test-anthropic-key",
+      anthropicApiKey: null,
+      geminiApiKey: null,
       screenshotOneApiKey: "test-screenshotone-key",
       isImageGenerationEnabled: true,
       editorTheme: "cobalt",

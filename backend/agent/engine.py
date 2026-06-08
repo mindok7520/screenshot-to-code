@@ -28,6 +28,7 @@ class AgentEngine:
         ],
         variant_index: int,
         openai_api_key: Optional[str],
+        openai_default_headers: Optional[Dict[str, str]],
         openai_base_url: Optional[str],
         anthropic_api_key: Optional[str],
         gemini_api_key: Optional[str],
@@ -38,6 +39,7 @@ class AgentEngine:
         self.send_message = send_message
         self.variant_index = variant_index
         self.openai_api_key = openai_api_key
+        self.openai_default_headers = openai_default_headers or {}
         self.openai_base_url = openai_base_url
         self.anthropic_api_key = anthropic_api_key
         self.gemini_api_key = gemini_api_key
@@ -52,6 +54,7 @@ class AgentEngine:
             file_state=self.file_state,
             should_generate_images=should_generate_images,
             openai_api_key=openai_api_key,
+            openai_default_headers=self.openai_default_headers,
             openai_base_url=openai_base_url,
             option_codes=option_codes,
         )
@@ -233,6 +236,7 @@ class AgentEngine:
             prompt_messages=prompt_messages,
             should_generate_images=self.should_generate_images,
             openai_api_key=self.openai_api_key,
+            openai_default_headers=self.openai_default_headers,
             openai_base_url=self.openai_base_url,
             anthropic_api_key=self.anthropic_api_key,
             gemini_api_key=self.gemini_api_key,

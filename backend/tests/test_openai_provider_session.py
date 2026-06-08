@@ -1,10 +1,15 @@
 import copy
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
 from agent.providers.base import ExecutedToolCall, ProviderTurn
-from agent.providers.openai import OpenAIProviderSession
+from agent.providers.openai import (
+    OpenAIProviderSession,
+    OpenAIResponsesParseState,
+    _build_provider_turn,
+    parse_event,
+)
 from agent.tools import ToolCall, ToolExecutionResult
 from llm import Llm
 
@@ -61,7 +66,7 @@ async def test_openai_provider_session_omits_prompt_cache_key_across_turns() -> 
     client = _FakeOpenAIClient()
     session = OpenAIProviderSession(
         client=client,  # type: ignore[arg-type]
-        model=Llm.GPT_5_2_CODEX_HIGH,
+        model=Llm.GPT_5_5_HIGH,
         prompt_messages=[{"role": "user", "content": "Build a landing page."}],
         tools=_test_tools(),
     )
@@ -115,6 +120,13 @@ async def test_openai_provider_session_omits_prompt_cache_key_across_turns() -> 
     assert isinstance(first_input, list)
     assert isinstance(second_input, list)
     assert len(second_input) > len(first_input)
+    replayed_function_call = cast(dict[str, Any], second_input[-2])
+    assert replayed_function_call == {
+        "type": "function_call",
+        "call_id": "call-1",
+        "name": "edit_file",
+        "arguments": '{"path":"index.html"}',
+    }
 
 
 @pytest.mark.asyncio
@@ -125,19 +137,19 @@ async def test_openai_provider_session_omits_prompt_cache_key_for_all_prompts() 
 
     first_session = OpenAIProviderSession(
         client=first_client,  # type: ignore[arg-type]
-        model=Llm.GPT_5_2_CODEX_HIGH,
+        model=Llm.GPT_5_5_HIGH,
         prompt_messages=[{"role": "user", "content": "Build a landing page."}],
         tools=_test_tools(),
     )
     second_session = OpenAIProviderSession(
         client=second_client,  # type: ignore[arg-type]
-        model=Llm.GPT_5_2_CODEX_HIGH,
+        model=Llm.GPT_5_5_HIGH,
         prompt_messages=[{"role": "user", "content": "Build a landing page."}],
         tools=_test_tools(),
     )
     different_prompt_session = OpenAIProviderSession(
         client=different_prompt_client,  # type: ignore[arg-type]
-        model=Llm.GPT_5_2_CODEX_HIGH,
+        model=Llm.GPT_5_5_HIGH,
         prompt_messages=[{"role": "user", "content": "Build a dashboard."}],
         tools=_test_tools(),
     )
@@ -149,6 +161,108 @@ async def test_openai_provider_session_omits_prompt_cache_key_for_all_prompts() 
     assert "prompt_cache_key" not in first_client.responses.calls[0]
     assert "prompt_cache_key" not in second_client.responses.calls[0]
     assert "prompt_cache_key" not in different_prompt_client.responses.calls[0]
+
+
+@pytest.mark.asyncio
+async def test_openai_provider_session_removes_non_replayable_store_false_items() -> None:
+    client = _FakeOpenAIClient()
+    session = OpenAIProviderSession(
+        client=client,  # type: ignore[arg-type]
+        model=Llm.GPT_5_5_HIGH,
+        prompt_messages=[{"role": "user", "content": "Build a page."}],
+        tools=_test_tools(),
+    )
+
+    session.append_tool_results(
+        ProviderTurn(
+            assistant_text="",
+            tool_calls=[
+                ToolCall(
+                    id="call-1",
+                    name="edit_file",
+                    arguments={"path": "index.html"},
+                )
+            ],
+            assistant_turn=[
+                {
+                    "type": "reasoning",
+                    "id": "rs_123",
+                    "summary": [{"text": "Planning."}],
+                },
+                {
+                    "type": "function_call",
+                    "id": "fc_123",
+                    "call_id": "call-1",
+                    "name": "edit_file",
+                    "arguments": '{"path":"index.html"}',
+                    "status": "completed",
+                },
+            ],
+        ),
+        [
+            ExecutedToolCall(
+                tool_call=ToolCall(
+                    id="call-1",
+                    name="edit_file",
+                    arguments={"path": "index.html"},
+                ),
+                result=ToolExecutionResult(
+                    ok=True,
+                    result={"content": "ok"},
+                    summary={"content": "ok"},
+                ),
+            )
+        ],
+    )
+
+    await session.stream_turn(_noop_event_sink)
+
+    input_items = client.responses.calls[0]["input"]
+    assert all(item.get("type") != "reasoning" for item in input_items)
+    assert all(
+        not str(item.get("id", "")).startswith("rs_")
+        for item in input_items
+        if isinstance(item, dict)
+    )
+    assert input_items[-2] == {
+        "type": "function_call",
+        "id": "fc_123",
+        "call_id": "call-1",
+        "name": "edit_file",
+        "arguments": '{"path":"index.html"}',
+        "status": "completed",
+    }
+    assert input_items[-1]["type"] == "function_call_output"
+
+
+@pytest.mark.asyncio
+async def test_openai_provider_turn_replays_tool_call_from_argument_event() -> None:
+    state = OpenAIResponsesParseState()
+
+    await parse_event(
+        {
+            "type": "response.function_call_arguments.done",
+            "item_id": "fc_123",
+            "call_id": "call-1",
+            "name": "edit_file",
+            "arguments": '{"path":"index.html"}',
+        },
+        state,
+        _noop_event_sink,
+    )
+
+    turn = _build_provider_turn(state)
+
+    assert turn.tool_calls[0].id == "call-1"
+    assert turn.assistant_turn == [
+        {
+            "type": "function_call",
+            "id": "fc_123",
+            "call_id": "call-1",
+            "name": "edit_file",
+            "arguments": '{"path":"index.html"}',
+        }
+    ]
 
 
 @pytest.mark.asyncio

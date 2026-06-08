@@ -20,6 +20,7 @@ class AgentToolRuntime:
         file_state: AgentFileState,
         should_generate_images: bool,
         openai_api_key: Optional[str],
+        openai_default_headers: Optional[Dict[str, str]],
         openai_base_url: Optional[str],
         user_id: Optional[str] = None,
         option_codes: Optional[List[str]] = None,
@@ -27,6 +28,7 @@ class AgentToolRuntime:
         self.file_state = file_state
         self.should_generate_images = should_generate_images
         self.openai_api_key = openai_api_key
+        self.openai_default_headers = openai_default_headers or {}
         self.openai_base_url = openai_base_url
         self.user_id = user_id
         self.option_codes = option_codes or []
@@ -251,14 +253,23 @@ class AgentToolRuntime:
             if not self.openai_api_key:
                 return ToolExecutionResult(
                     ok=False,
-                    result={"error": "No API key available for image generation."},
-                    summary={"error": "Missing image generation API key"},
+                    result={
+                        "error": "No Codex auth token available for image generation."
+                    },
+                    summary={"error": "Missing image generation auth token"},
                 )
             model = "dalle3"
             api_key = self.openai_api_key
             base_url = self.openai_base_url
 
-        generated = await process_tasks(unique_prompts, api_key, base_url, model)  # type: ignore
+        default_headers = self.openai_default_headers if model == "dalle3" else None
+        generated = await process_tasks(  # type: ignore
+            unique_prompts,
+            api_key,
+            base_url,
+            model,
+            default_headers,
+        )
         merged_results = {
             prompt: url for prompt, url in zip(unique_prompts, generated)
         }

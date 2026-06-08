@@ -22,6 +22,7 @@ def test_edit_file_returns_structured_result_with_diff() -> None:
         ),
         should_generate_images=False,
         openai_api_key=None,
+        openai_default_headers=None,
         openai_base_url=None,
     )
 
@@ -51,6 +52,7 @@ async def test_execute_edit_file_uses_updated_result_shape() -> None:
         file_state=AgentFileState(path="index.html", content="<main>old</main>"),
         should_generate_images=False,
         openai_api_key=None,
+        openai_default_headers=None,
         openai_base_url=None,
     )
 
@@ -89,6 +91,7 @@ async def test_save_assets_promotes_temporary_asset_id(
         file_state=AgentFileState(),
         should_generate_images=False,
         openai_api_key=None,
+        openai_default_headers=None,
         openai_base_url=None,
     )
 
